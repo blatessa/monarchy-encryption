@@ -36,9 +36,9 @@ undo machinery (timers, backups, rollback). Test: would it belong in a plain "TP
 - Small, focused commits; explain why. Branch from `main`, open a PR, let CI run.
 
 ## Picking work
-GitHub issues are the work queue for agents. Labels: `P0` (blocks everything else) to `P3` (polish), and `needs-lab`
-(needs the VM to verify). Take the highest-priority open issue whose dependencies (listed in its body) are closed and
-that has no assignee or open PR. Each issue says what done looks like. Close it from the PR (`Fixes #N`). Found new work?
+GitHub issues are the work queue for agents. Labels: `P0` (blocks everything else) to `P3` (polish). Assume work needs
+the lab unless the issue says otherwise. Take the highest-priority open issue whose dependencies (listed in its body)
+are closed and that has no assignee or open PR. Each issue says what done looks like. Close it from the PR (`Fixes #N`). Found new work?
 Open an issue in the same shape instead of growing the current change.
 
 ## Definition of done

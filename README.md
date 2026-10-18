@@ -4,8 +4,9 @@ Disk unlock for [Omarchy](https://omarchy.org) laptops that more than one person
 the TPM unlock the encrypted disk at boot, protected by Secure Boot, with a recovery key IT can hold, so the login
 screen becomes the place people prove who they are.
 
-> **Status: early.** The command exists but does nothing yet; this repository holds the plan and the research. Work
-> is tracked in [issues](https://github.com/blatessa/monarchy-encryption/issues); start with [AGENTS.md](AGENTS.md).
+> **Status: in progress, not ready for use.** `setup` switches the laptop to a systemd initramfs and turns on Secure
+> Boot with the laptop's own keys; TPM unlock and the recovery key are not built yet. Work is tracked in
+> [issues](https://github.com/blatessa/monarchy-encryption/issues); start with [AGENTS.md](AGENTS.md).
 
 ## Why
 

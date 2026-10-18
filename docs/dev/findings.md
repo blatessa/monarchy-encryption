@@ -21,3 +21,35 @@ With a serial port on the VM, the firmware lists it as a console, systemd's UKI 
 then shows a plain-text passphrase prompt instead of Omarchy's themed screen. The busybox and systemd initramfs both
 do it. The lab boots with no serial port unless `LAB_SERIAL=1` (only `install.sh` sets it), so its screen matches a
 laptop's.
+
+## Omarchy's busybox hooks all have systemd equivalents
+
+Seen: Omarchy 4.0.5 (mkinitcpio 42.2, limine-mkinitcpio-hook 1.40.0, systemd 262), October 2026; spike #3.
+
+| Omarchy (busybox) | systemd initramfs | Note |
+|---|---|---|
+| `udev` | `systemd` | |
+| `keymap`, `consolefont` | `sd-vconsole` | Only when Omarchy bundles `/etc/vconsole.conf` (Latin layouts): sd-vconsole always puts the layout in, and a non-Latin one makes the passphrase untypeable (Omarchy #6229). |
+| `encrypt` | `sd-encrypt` | The disk comes from crypttab, not `cryptdevice=`. |
+| `btrfs-overlayfs` | `sd-btrfs-overlayfs` | Same package (limine-mkinitcpio-hook). The busybox one is a runscript, which a systemd initramfs never runs: snapshot entries would boot read-only. |
+| `resume` | (none) | systemd resumes from `resume=`/`resume_offset=` itself. |
+| `plymouth` | `plymouth` | The same hook installs the systemd units (themed prompt confirmed). |
+
+`/etc/crypttab.initramfs` still works but mkinitcpio 42 calls it deprecated: use a line in `/etc/crypttab` with
+`x-initrd.attach`. Naming the mapping `root` keeps `/dev/mapper/root`, so `root=` and `resume=` don't change, and
+`cryptdevice=` can stay on the command line (ignored by systemd). Omarchy's first-boot setup, factory reset and Quattro
+upgrade read `cryptdevice=` to find the LUKS partition (they also fall back to walking the device tree).
+
+## systemd 262's NvPCR setup fails in the lab
+
+Seen: lab VM (swtpm), Omarchy 4.0.5, systemd 262, on every boot including stock. `systemd-tpm2-setup-early`,
+`systemd-pcrproduct` and `systemd-pcrlogin@` fail with "Failed to initialize NvPCR index: No such file or directory".
+The SRK itself is set up (`SRK already stored in the TPM`), so `systemd-cryptenroll --tpm2-device` is not affected.
+The host laptop (systemd 261.2, a hardware TPM) initializes its NvPCRs. Revisit in #5: swtpm or 262?
+
+## Running `omarchy update` in the lab
+
+Seen: Omarchy 4.0.5. A direct `pacman -Syu` is refused by Omarchy's `00-omarchy-update-guard` hook. `omarchy update -y`
+over ssh needs `OMARCHY_PATH=/usr/share/omarchy` (the desktop session sets it), passwordless sudo that sorts after
+Omarchy's sudoers files, and `Defaults verifypw=any` (its stay-awake step runs `sudo -v`). Even with `-y`, it then
+waits at the orphan-packages step; packages, migrations and post-update hooks have run by then.

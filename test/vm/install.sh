@@ -80,6 +80,7 @@ build_cidata "$STAGE"
 qemu-img create -q -f qcow2 "$STAGE/disk.qcow2" "$DISK_SIZE"
 cp "$OVMF_VARS_TEMPLATE" "$STAGE/vars.fd"
 
+export LAB_SERIAL=1   # the wait below reads the firmware's serial output
 log "installing $(basename "$ISO") unattended (about 10 minutes; screen: $STAGE/screen.png)"
 start_vm "$STAGE" \
   -drive "file=$ISO,media=cdrom,if=none,format=raw,id=cdrom0,readonly=on" -device ide-cd,drive=cdrom0,bootindex=2 \

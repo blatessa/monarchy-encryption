@@ -14,7 +14,7 @@ if ((type_pw)); then
 else
   start=$SECONDS
   until lab_ssh true 2>/dev/null; do
-    vm_running "$LAB" || die "the VM stopped while booting (see $LAB/serial.log)"
+    vm_running "$LAB" || die "the VM stopped while booting"
     ((SECONDS - start < 300)) || { screenshot "$LAB" "$LAB/boot-timeout.png"; die "no ssh after 300s without the passphrase (screen: $LAB/boot-timeout.png)"; }
     sleep 2
   done

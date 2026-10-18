@@ -69,10 +69,10 @@ How it fits together (`test/vm/lib.sh`):
 - **The disk passphrase** is typed through QMP `send-key` on an interval until ssh answers, the same way Omarchy's
   own ISO tests do it. Plymouth's prompt can't be read reliably, and keystrokes that arrive early are discarded. The
   passphrase avoids keys that do something in Limine's menu (`e` edits the entry).
-- **How it differs from a laptop.** As installed on 4.0.5, the lab matches a stock install: LUKS2 opened by the busybox
-  `encrypt` hook (`cryptdevice=`), Limine with UKIs, Secure Boot off with the firmware in setup mode, TPM2 present.
-  One known difference: the running kernel command line ends with `console=uart,io,0x3f8 console=tty0`, which isn't in
-  Omarchy's Limine config. Where it comes from hasn't been traced yet.
+- **No serial port.** The VM has none unless `LAB_SERIAL=1` (`install.sh` sets it, to see when the install is done).
+  With one, the firmware's console list and systemd's UKI stub add `console=` for it, and Plymouth shows a plain-text
+  disk prompt instead of Omarchy's themed one (findings.md). For kernel messages while debugging a boot, set
+  `LAB_SERIAL=1` and read `serial.log`.
 - **Ports and files.** ssh is forwarded on 127.0.0.1:2223 (monarchy-identity's lab uses 2222). Each running VM keeps
-  `qmp.sock`, `serial.log`, `swtpm.log` and screenshots in its directory. Everything under `test/vm/images/` and
-  `test/vm/keys/` is git-ignored.
+  `qmp.sock`, `swtpm.log` and screenshots (and `serial.log` with `LAB_SERIAL=1`) in its directory. Everything under
+  `test/vm/images/` and `test/vm/keys/` is git-ignored.

@@ -62,7 +62,9 @@ screenshot() { # screenshot DIR FILE.png: what the VM's screen shows now
 }
 
 # start_vm DIR [EXTRA QEMU ARGS]: boots DIR/disk.qcow2 with DIR/vars.fd and the TPM state in DIR/tpm, in the background.
-# swtpm runs alongside and exits with QEMU (--terminate).
+# swtpm runs alongside and exits with QEMU (--terminate). No serial port unless LAB_SERIAL=1 (then DIR/serial.log): the
+# firmware would list it as a console, the UKI stub would add console= for it, and Plymouth would then show a plain-text
+# disk prompt instead of Omarchy's themed one (docs/dev/findings.md). A laptop has none.
 start_vm() {
   local dir=$1; shift
   vm_running "$dir" && die "the VM in $dir is already running"
@@ -71,6 +73,8 @@ start_vm() {
   swtpm socket --tpm2 --tpmstate "dir=$dir/tpm" --ctrl "type=unixio,path=$dir/swtpm.sock" \
     --log "file=$dir/swtpm.log" --pid "file=$dir/swtpm.pid" --terminate --daemon
   for _ in $(seq 50); do [[ -S $dir/swtpm.sock ]] && break; sleep 0.1; done
+  local serial=(-serial none)
+  [[ -n ${LAB_SERIAL:-} ]] && serial=(-serial "file:$dir/serial.log")
   qemu-system-x86_64 \
     -name monarchy-lab -cpu host -enable-kvm -machine q35,smm=on,accel=kvm -smp 4 -m "$MEMORY" \
     -global driver=cfi.pflash01,property=secure,value=on -global ICH9-LPC.disable_s3=1 \
@@ -80,7 +84,7 @@ start_vm() {
     -drive file="$dir/disk.qcow2",format=qcow2,if=none,id=drive0 -device virtio-blk-pci,drive=drive0,bootindex=1 \
     -device virtio-vga -display none -usb -device usb-tablet \
     -netdev user,id=net0,hostfwd=tcp:127.0.0.1:"$SSH_PORT"-:22 -device virtio-net-pci,netdev=net0 \
-    -qmp "unix:$dir/qmp.sock,server,nowait" -serial "file:$dir/serial.log" -pidfile "$dir/qemu.pid" -daemonize \
+    -qmp "unix:$dir/qmp.sock,server,nowait" "${serial[@]}" -pidfile "$dir/qemu.pid" -daemonize \
     "$@"
 }
 
@@ -107,7 +111,7 @@ lab_ssh_root() { lab_ssh "echo $LAB_PASSWORD | sudo -S -p '' $(printf '%q ' "$@"
 unlock_and_wait() {
   local dir=$1 timeout=$2 start=$SECONDS next=10
   until lab_ssh true 2>/dev/null; do
-    vm_running "$dir" || die "the VM stopped while booting (see $dir/serial.log)"
+    vm_running "$dir" || die "the VM stopped while booting"
     if ((SECONDS - start >= timeout)); then
       screenshot "$dir" "$dir/boot-timeout.png"; die "no ssh after ${timeout}s (screen: $dir/boot-timeout.png)"
     fi

@@ -32,6 +32,7 @@ lock_editor() { # in limine.conf itself; Limine's tools keep the lines above the
   local c; c=$(limine_conf)
   [[ -f $c ]] || die "no Limine menu at $c: is this an Omarchy laptop?"
   editor_locked && return 0
+  CHANGED=1
   if grep -q '^editor_enabled:' "$c"; then
     sed -i 's/^editor_enabled:.*/editor_enabled: no/' "$c"
   else
@@ -44,6 +45,7 @@ config_enroll_enabled() { grep -qx 'ENABLE_ENROLL_LIMINE_CONFIG=yes' "$ETC/defau
 enable_config_enroll() {
   local f="$ETC/default/limine"
   config_enroll_enabled && return 0
+  CHANGED=1
   if grep -q '^ENABLE_ENROLL_LIMINE_CONFIG=' "$f" 2>/dev/null; then
     sed -i 's/^ENABLE_ENROLL_LIMINE_CONFIG=.*/ENABLE_ENROLL_LIMINE_CONFIG=yes/' "$f"
   else
@@ -58,8 +60,11 @@ config_protected() { # the Limine binary carries the checksum of the current lim
 # Limine's tools copy a plain Limine to the firmware's fallback path on every update. It has no enrolled checksum, so
 # choosing it in the firmware's boot menu would boot a changed limine.conf. Our hook replaces it with the enrolled one.
 install_fallback_hook() {
+  local link="$ETC/boot/hooks/post.d/$FALLBACK_HOOK"
+  [[ $(readlink "$link" 2>/dev/null) == "$ME_ROOT/hooks/limine-fallback" ]] && return 0
   install -d -m 0755 "$ETC/boot/hooks/post.d"
-  ln -sfn "$ME_ROOT/hooks/limine-fallback" "$ETC/boot/hooks/post.d/$FALLBACK_HOOK"
+  ln -sfn "$ME_ROOT/hooks/limine-fallback" "$link"
+  CHANGED=1
 }
 fallback_protected() { cmp -s "$(limine_bin)" "$(fallback_bin)"; }
 
@@ -92,22 +97,31 @@ Snapshots taken from now on can, and every snapshot can still be restored from t
 }
 
 # --- setup --------------------------------------------------------------------------------------------------------
-# Everything is signed and checked before the keys go into the firmware: after that, nothing unsigned starts.
-secureboot_setup() {
+# Refuses before anything is changed: called by setup up front.
+secureboot_check() {
   [[ -d $EFIVARS ]] || die "this laptop didn't start in UEFI mode, so it can't use Secure Boot"
-  local setup_mode; setup_mode=$(efi_flag SetupMode)
-  if [[ $setup_mode != true ]] && ! own_keys_enrolled; then
+  if [[ $(efi_flag SetupMode) != true ]] && ! own_keys_enrolled; then
     die "Secure Boot already has keys that aren't this laptop's own (usually the manufacturer's). In the firmware \
 settings, reset or clear the Secure Boot keys so the firmware is in setup mode, then run setup again. Nothing was changed."
   fi
+}
+
+# Everything is signed and checked before the keys go into the firmware: after that, nothing unsigned starts. The boot
+# files are rebuilt (which also builds the initramfs) only when something changed (CHANGED, set by setup's other parts
+# too) or isn't signed and protected yet, so running setup again changes nothing.
+secureboot_setup() {
+  local setup_mode; setup_mode=$(efi_flag SetupMode)
   lock_editor
   enable_config_enroll
   install_fallback_hook
   if [[ ! -f $SBCTL_DIR/keys/PK/PK.pem ]]; then
     sbctl create-keys >/dev/null || die "creating this laptop's Secure Boot keys failed"
     log "created this laptop's Secure Boot keys"
+    CHANGED=1
   fi
-  sign_boot_files
+  if ((${CHANGED:-0})) || [[ -n $(unsigned_boot_files) ]] || ! config_protected || ! fallback_protected; then
+    sign_boot_files
+  fi
   warn_unbootable_snapshots
   if [[ $setup_mode == true ]]; then
     # Microsoft's keys stay alongside ours: graphics cards and other devices start firmware signed by Microsoft

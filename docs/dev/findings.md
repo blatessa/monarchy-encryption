@@ -84,3 +84,18 @@ Seen: Omarchy 4.0.5, limine 12.9.3, limine-mkinitcpio-hook 1.40.0, sbctl 0.18, i
   answered by finding the DER of `PK.pem` in the PK variable.
 - An unsigned EFI program set as `BootNext`: OVMF logs `Access Denied -- rejected probably by Secure Boot`, clears
   BootNext and starts the next entry (Limine).
+
+## Hibernation and reboots are unreliable in the lab
+
+Seen: lab VM, Omarchy 4.0.5, October 2026, while testing #18.
+
+- **Resume:** hibernation always writes its image (2 GB in about 1.5 s, then the VM powers off), but the next start
+  often doesn't find it: `Unable to resume from device '/dev/mapper/root' (253:0) offset 1535226, continuing boot
+  process`. Counts with `test/vm/hibernate-loop.sh`: a stock install (busybox initramfs) resumed 1 of 5 times; after
+  `setup` (systemd initramfs, Secure Boot) 2 of 2, plus single successes on both earlier. So the systemd initramfs
+  isn't what makes it unreliable. Uptime at hibernation made no difference (failures at 43 s, successes at 14 s).
+- **Hang:** some reboots end on a black screen with ssh refused and nothing in the journal, on stock as well as after
+  `setup`. Three of the four seen came at the first reboot after a successful resume, including the one in spike #3,
+  but one reboot after a resume went through cleanly.
+- Not explained yet: #21. Until it is, lab suites that hibernate retry, and a hang means a lab problem before it means
+  a product one.

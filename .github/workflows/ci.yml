@@ -55,6 +55,8 @@ jobs:
           bsdtar -tf "$p" | grep -qx usr/share/monarchy-encryption/lib/common.sh
           bsdtar -tf "$p" | grep -qx usr/share/monarchy-encryption/lib/secureboot.sh
           bsdtar -tf "$p" | grep -qx usr/share/monarchy-encryption/hooks/limine-fallback
+          bsdtar -tf "$p" | grep -qx usr/share/monarchy-encryption/lib/initramfs.sh
+          bsdtar -tf "$p" | grep -qx usr/share/monarchy-encryption/data/zz-monarchy-encryption.conf
       - name: Keep the package
         uses: actions/upload-artifact@v4
         with:

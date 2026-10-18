@@ -6,7 +6,7 @@ fail=0
 ok()  { printf '  PASS %s\n' "$1"; }
 bad() { printf '  FAIL %s\n' "$1"; fail=1; }
 shots=$LAB/e2e-secureboot; menu_text() { screenshot "$LAB" "$shots/m.png"; tesseract "$shots/m.png" - 2>/dev/null; }
-reboot_vm() { lab_ssh_root systemctl reboot >/dev/null 2>&1 || true; sleep 5; unlock_and_wait "$LAB" 300; }
+reboot_vm() { lab_reboot "$LAB"; }
 st() { lab_ssh_root monarchy-encryption status --json | jq -r "$1"; }
 
 "$VM/reset.sh"; "$VM/run.sh" >/dev/null; mkdir -p "$shots"

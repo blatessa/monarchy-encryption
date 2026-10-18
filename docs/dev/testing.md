@@ -24,7 +24,9 @@ bash test/unit/cli.sh             # or one suite
 
 `test/unit/lib.sh` gives each suite a sandbox: a temp `/etc` (`$T/etc`, passed as `MONARCHY_ENCRYPTION_ETC`), the
 real `bin/monarchy-encryption` run as fake root (`unshare -r`, through `me`; `me_user` runs it unprivileged), and stub
-commands (`test/unit/stubs/`: `cryptsetup`, `sbctl`, `systemd-cryptenroll`, `bootctl`, `logger`) first on `PATH`.
+commands (`test/unit/stubs/`: `cryptsetup`, `sbctl`, `systemd-cryptenroll`, `bootctl`, `limine-update`, `logger`)
+first on `PATH`. The sandbox is a stock Omarchy laptop: an ESP (`$T/boot`) with Omarchy's `limine.conf` and boot
+files, its `/etc/default/limine` (`test/unit/fixtures/`), and firmware variables (`$T/efivars`) in setup mode.
 Each stub appends its command line to `$STUB_LOG`; `called "cryptsetup open"` checks what they saw. A suite puts the
 files it needs under `$T/etc` itself, so suites don't depend on each other or on order.
 
@@ -35,6 +37,7 @@ wrong, fix the stub and the note.
 | Suite | Covers |
 |---|---|
 | `cli` | Every command exists, `--help`, unknown commands and options, root checks; the harness itself (stubs shadow the real tools and record calls) |
+| `secureboot` | `setup`'s Secure Boot part: keys, signing before enrolling, the boot menu settings, the fallback hook, re-running, every refusal leaving the machine unchanged, `status --json` |
 
 ## The lab
 
@@ -50,7 +53,14 @@ test/vm/run.sh           # boot the VM (types the disk passphrase); --no-passphr
 test/vm/ssh.sh [CMD]     # a shell or a command in the VM, as user lab (sudo password: lib.sh)
 test/vm/stop.sh          # clean shutdown; disk, firmware variables and TPM state are kept
 test/vm/reset.sh         # back to the clean install: disk, firmware variables (setup mode again) and TPM
+test/vm/install-package.sh   # build the package from this checkout and install it in the running VM
 ```
+
+Lab suites (each resets the lab first):
+
+| Suite | Covers |
+|---|---|
+| `test/vm/e2e-secureboot.sh` | `setup` on a clean install; Secure Boot on after a restart; the menu has no editor; an unsigned EFI program is refused; a kernel update stays signed; a snapshot taken before setup is reported, one taken after starts; a changed menu is refused |
 
 Run long boots in the background (`setsid test/vm/install.sh </dev/null >install.log 2>&1 &`) rather than holding a
 terminal.

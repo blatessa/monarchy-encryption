@@ -1,4 +1,11 @@
 #!/bin/bash
-# Stand-in for cryptsetup: records the call and succeeds. Behaviour is added with the feature that needs it, citing where the
-# real output was observed (docs/dev/findings.md).
+# Stand-in for cryptsetup 2.8 (output as seen in the lab: docs/dev/findings.md). The disk is /dev/vda2 mapped as
+# "root"; STUB_NOT_LUKS=1: nothing is mapped.
 echo "cryptsetup $*" >> "$STUB_LOG"
+case $1 in
+  status)
+    [[ -z ${STUB_NOT_LUKS:-} && $2 == root ]] || { echo "/dev/mapper/$2 is inactive."; exit 4; }
+    printf '/dev/mapper/root is active and is in use.\n  type:    LUKS2\n  cipher:  aes-xts-plain64\n  device:  /dev/vda2\n' ;;
+  luksUUID) [[ $2 == /dev/vda2 ]] && echo 8b81edbd-cf38-4664-82ab-17852814fdb0 ;;
+esac
+exit 0

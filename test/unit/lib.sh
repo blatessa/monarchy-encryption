@@ -15,17 +15,19 @@ unshare -r true 2>/dev/null || { echo "SKIP: 'unshare -r' is not allowed here (u
 FIX="$REPO/test/unit/fixtures"
 G=8be4df61-93ca-11d2-aa0d-00e098032b8c   # UEFI global variables
 
-# sandbox: a stock Omarchy laptop in a temp dir: the ESP ($T/boot) with Omarchy's limine.conf and boot files, its
-# /etc/default/limine, and firmware variables ($T/efivars) in setup mode with Secure Boot off and no keys.
+# sandbox: a stock Omarchy laptop in a temp dir: the ESP ($T/boot) with Omarchy's limine.conf and boot files; its
+# /etc/default/limine, mkinitcpio config (busybox hooks) and crypttab; firmware variables ($T/efivars) in setup mode with
+# Secure Boot off and no keys; / on /dev/mapper/root, LUKS on /dev/vda2 (the findmnt and cryptsetup stubs).
 sandbox() {
   T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
   export MONARCHY_ENCRYPTION_ETC="$T/etc" MONARCHY_ENCRYPTION_ROOT="$REPO" HOME="$T/home"
   export MONARCHY_ENCRYPTION_ESP="$T/boot" MONARCHY_ENCRYPTION_EFIVARS="$T/efivars" MONARCHY_ENCRYPTION_SBCTL_DIR="$T/sbctl"
   export STUB_STATE="$T/state" STUB_LOG="$T/calls.log" PATH="$STUBS:$PATH"
-  unset STUB_ENROLL_FAIL STUB_LIMINE_UPDATE_FAIL STUB_UKI_UNSIGNED
+  unset STUB_ENROLL_FAIL STUB_LIMINE_UPDATE_FAIL STUB_UKI_UNSIGNED STUB_NOT_LUKS STUB_ROOT_SOURCE
   mkdir -p "$T/etc/default" "$T/etc/boot/hooks/post.d" "$T/state" "$T/home" "$T/efivars" \
     "$T/boot/EFI/limine" "$T/boot/EFI/BOOT" "$T/boot/EFI/Linux"
   cp "$FIX/boot/limine.conf" "$T/boot/"; cp "$FIX/etc/default/limine" "$T/etc/default/"
+  cp -r "$FIX/etc/mkinitcpio.conf" "$FIX/etc/mkinitcpio.conf.d" "$FIX/etc/crypttab" "$T/etc/"
   echo "Limine 12.9.3 as packaged" > "$T/state/limine-stock.efi"
   cp "$T/state/limine-stock.efi" "$T/boot/EFI/limine/limine_x64.efi"
   cp "$T/state/limine-stock.efi" "$T/boot/EFI/BOOT/BOOTX64.EFI"
@@ -40,5 +42,5 @@ me() { OUT=$(unshare -r "$MEBIN" "$@" 2>&1 </dev/null); RC=$?; }
 # me_user ARGS...: same, without root (the real uid).
 me_user() { OUT=$("$MEBIN" "$@" 2>&1 </dev/null); RC=$?; }
 called() { grep -qF -- "$1" "$STUB_LOG"; }   # did a stub see this command line?
-snap() { (cd "$T" && find etc boot efivars sbctl -type f 2>/dev/null | sort | xargs -r md5sum); }   # the machine's state
+snap() { (cd "$T" && find etc boot efivars sbctl -type f,l 2>/dev/null | sort | xargs -r md5sum); }   # the machine's state
 js() { jq -r "$1" <<<"$OUT"; }   # js FILTER: a value from the last command's JSON output

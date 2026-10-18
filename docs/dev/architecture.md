@@ -20,10 +20,14 @@ packages Omarchy installs.
    `btrfs-overlayfs`→`sd-btrfs-overlayfs`, `resume` dropped). Mapping rather than replacing the list keeps whatever
    Omarchy decides about the rest (it drops `kms` on NVIDIA-only machines, and adds hooks over time). `sd-vconsole` is
    used only when Omarchy bundles `/etc/vconsole.conf`, so a non-Latin layout never makes the passphrase untypeable.
-   The spike's version is [`test/vm/spike/zz-monarchy-encryption.conf`](../../test/vm/spike/zz-monarchy-encryption.conf).
+   It ships as [`data/zz-monarchy-encryption.conf`](../../data/zz-monarchy-encryption.conf), and `setup` copies it in.
 2. One line in `/etc/crypttab`: `root UUID=<luks uuid> none luks,x-initrd.attach` (`/etc/crypttab.initramfs` is
    deprecated in mkinitcpio 42). The name `root` keeps `/dev/mapper/root`, so `root=` and `resume=` stay valid.
-3. Rebuild the UKI (`limine-mkinitcpio`).
+3. Rebuild the UKI (`limine-update`, as part of the Secure Boot step, so it's built and signed once).
+
+`setup` does all three (#18). Before changing anything, it checks that `/` really is on LUKS, and that any existing
+`/etc/crypttab` line for the mapping opens the same volume, with no key file, in the initramfs (extra options are
+fine). The boot files are rebuilt only when something changed, so running `setup` again changes nothing.
 
 The kernel command line is **not** changed: `cryptdevice=` is ignored by a systemd initramfs, and Omarchy's first-boot
 setup, factory reset and Quattro upgrade read it to find the LUKS partition. Nothing under `/usr/share/omarchy` or in
@@ -45,7 +49,9 @@ Omarchy's own `/etc` files is edited.
 - One boot, the first after `omarchy-refresh-limine`, hung on a black screen before the root filesystem was mounted
   (nothing reached the journal). It didn't happen again in 15 reboots. Omarchy documents a similar intermittent hang
   on stock installs (the `systemd.tty.term.console=dumb` comment in `omarchy-defaults.conf`); whether this was that is
-  not known. Keep counting hangs whenever the lab boots in a loop.
+  not known. Keep counting hangs whenever the lab boots in a loop (`test/vm/boot-loop.sh N LABEL`). Update (#18): hangs
+  like it happen on stock installs too, often at the first reboot after resuming from hibernation, so it looks like a
+  lab problem; tracked in #21.
 - Old snapshot entries keep the initramfs they were made with. A snapshot taken before the switch boots with the
   busybox initramfs, which can only ask for a passphrase or recovery key, not use the TPM. That's probably acceptable
   (snapshots are a recovery path, and a recovery key is a passphrase slot, so it should open the disk there; not yet

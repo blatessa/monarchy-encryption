@@ -7,6 +7,7 @@ ROOT="${MONARCHY_ENCRYPTION_ROOT:-/usr/share/monarchy-encryption}"
 export ME_ROOT="$ROOT"
 source "$ROOT/lib/common.sh"
 source "$ROOT/lib/secureboot.sh"
+source "$ROOT/lib/initramfs.sh"
 
 usage() {
   cat <<EOF
@@ -21,20 +22,27 @@ EOF
 
 not_implemented() { die "$1 is not implemented yet"; }
 
+# Every check that can refuse runs before anything is changed.
 cmd_setup() {
   need_root
-  secureboot_setup
-  log "setup done so far: Secure Boot with this laptop's own keys (TPM unlock and the recovery key are not built yet)"
+  CHANGED=0
+  secureboot_check
+  initramfs_check
+  initramfs_apply      # the systemd initramfs; the boot image is rebuilt by the next step
+  secureboot_setup     # rebuilds and signs the boot files when anything changed, then enrolls the keys
+  log "setup done so far: a systemd initramfs and Secure Boot with this laptop's own keys (TPM unlock and the recovery key are not built yet)"
 }
 
 cmd_status() {
   local json=0
   [[ $# -eq 0 || ($# -eq 1 && $1 == --json) ]] || { usage >&2; exit 1; }
   [[ ${1:-} == --json ]] && json=1
-  local out; out="{\"schema\":1,$(secureboot_status_json)}"
+  local out; out="{\"schema\":1,$(initramfs_status_json),$(secureboot_status_json)}"
   if ((json)); then printf '%s\n' "$out"; return; fi
   jq -r '
     def yn: if . == null then "unknown (run as root)" elif . then "yes" else "no" end;
+    "Disk encrypted:         \(.disk.encrypted | yn)",
+    "  ready for TPM unlock: \(.disk.systemd_initramfs | yn)",
     "Secure Boot:            \(if .secure_boot.enabled then "on" elif .secure_boot.setup_mode then "off, ready for keys (setup mode)" else "off" end)",
     "  this laptop'"'"'s keys:     \(.secure_boot.own_keys | yn)",
     "  Microsoft keys:       \(.secure_boot.microsoft_keys | yn)",

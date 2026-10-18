@@ -119,3 +119,13 @@ unlock_and_wait() {
     sleep 2
   done
 }
+
+# lab_reboot DIR: restart the VM and wait for the *new* boot (typing the passphrase). The old system can still answer
+# ssh for a while after `systemctl reboot`, so waiting for ssh alone can land on the system that is shutting down.
+lab_reboot() {
+  local old i; old=$(lab_ssh cat /proc/sys/kernel/random/boot_id 2>/dev/null)
+  lab_ssh_root systemctl reboot >/dev/null 2>&1 || true
+  for i in $(seq 60); do lab_ssh true 2>/dev/null || break; sleep 1; done
+  unlock_and_wait "$1" 300
+  [[ $(lab_ssh cat /proc/sys/kernel/random/boot_id) != "$old" ]] || die "the VM didn't restart"
+}

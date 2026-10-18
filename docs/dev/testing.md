@@ -37,6 +37,7 @@ wrong, fix the stub and the note.
 | Suite | Covers |
 |---|---|
 | `cli` | Every command exists, `--help`, unknown commands and options, root checks; the harness itself (stubs shadow the real tools and record calls) |
+| `initramfs` | The drop-in's hook mapping against Omarchy's real hook config (plain, NVIDIA-only, non-Latin layout, unknown hooks), the crypttab line, refusals that change nothing, re-running that rebuilds nothing, `status` |
 | `secureboot` | `setup`'s Secure Boot part: keys, signing before enrolling, the boot menu settings, the fallback hook, re-running, every refusal leaving the machine unchanged, `status --json` |
 
 ## The lab
@@ -54,12 +55,15 @@ test/vm/ssh.sh [CMD]     # a shell or a command in the VM, as user lab (sudo pas
 test/vm/stop.sh          # clean shutdown; disk, firmware variables and TPM state are kept
 test/vm/reset.sh         # back to the clean install: disk, firmware variables (setup mode again) and TPM
 test/vm/install-package.sh   # build the package from this checkout and install it in the running VM
+test/vm/boot-loop.sh N LABEL # reboot N times, typing the passphrase; counts boots that never come up
+test/vm/hibernate-loop.sh N LABEL  # hibernate N times; counts real resumes (unreliable in the lab: #21)
 ```
 
 Lab suites (each resets the lab first):
 
 | Suite | Covers |
 |---|---|
+| `test/vm/e2e-initramfs.sh` | `setup` on a clean install: the themed passphrase screen, systemd opens the disk, re-running changes nothing (boot image included), a snapshot starts writable; hibernation is reported, not counted, until #21 |
 | `test/vm/e2e-secureboot.sh` | `setup` on a clean install; Secure Boot on after a restart; the menu has no editor; an unsigned EFI program is refused; a kernel update stays signed; a snapshot taken before setup is reported, one taken after starts; a changed menu is refused |
 
 Run long boots in the background (`setsid test/vm/install.sh </dev/null >install.log 2>&1 &`) rather than holding a

@@ -1,0 +1,4 @@
+#!/bin/bash
+# Stand-in for findmnt -no SOURCE /: Omarchy's root is a btrfs subvolume on /dev/mapper/root (STUB_ROOT_SOURCE overrides).
+echo "findmnt $*" >> "$STUB_LOG"
+echo "${STUB_ROOT_SOURCE:-/dev/mapper/root[/@]}"

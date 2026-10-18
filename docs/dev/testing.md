@@ -38,5 +38,41 @@ wrong, fix the stub and the note.
 
 ## The lab
 
-Not built yet: see issue #1 (a QEMU VM with Secure Boot firmware in setup mode, `swtpm`, and an encrypted Omarchy
-install that can be reset in minutes).
+A real, encrypted Omarchy install from the release ISO under QEMU/KVM, with Secure Boot firmware (OVMF's `secboot`
+build, variables starting empty: setup mode, Secure Boot off) and a software TPM 2.0 (`swtpm`). It can be broken and put
+back in seconds.
+
+```bash
+test/lab-check.sh        # what's missing, with the command that fixes it; exit 0 when the VM is up
+test/vm/fetch-iso.sh     # once: the Omarchy release ISO (6 GB), checked against its SHA-256
+test/vm/install.sh       # once per ISO: the clean install, unattended (about 10 minutes)
+test/vm/run.sh           # boot the VM (types the disk passphrase); --no-passphrase when the TPM should unlock it
+test/vm/ssh.sh [CMD]     # a shell or a command in the VM, as user lab (sudo password: lib.sh)
+test/vm/stop.sh          # clean shutdown; disk, firmware variables and TPM state are kept
+test/vm/reset.sh         # back to the clean install: disk, firmware variables (setup mode again) and TPM
+```
+
+Run long boots in the background (`setsid test/vm/install.sh </dev/null >install.log 2>&1 &`) rather than holding a
+terminal.
+
+How it fits together (`test/vm/lib.sh`):
+
+- **Two copies.** `test/vm/images/base/` holds the clean install: disk, `vars.fd`, `tpm/`. Nothing writes to it after
+  `install.sh`. `test/vm/images/lab/` is the working copy: a qcow2 overlay on the base disk plus its own copies of the
+  variables and TPM state. `reset.sh` recreates it. A Secure Boot, keyslot or TPM experiment always resets all three
+  together, because an enrolled TPM key that doesn't match the firmware state (or the other way round) is a different
+  machine from the one you meant to test.
+- **The unattended install.** The ISO installs itself when a drive labeled `cidata` carries its configurator's output
+  files (omarchy-iso README, "Unattended installs"). `install.sh` writes those files for an encrypted full-disk
+  install and adds `authorized_keys`, which also enables sshd. The cidata image holds the disk passphrase in plain
+  text, so it is deleted once the install finishes.
+- **The disk passphrase** is typed through QMP `send-key` on an interval until ssh answers, the same way Omarchy's
+  own ISO tests do it. Plymouth's prompt can't be read reliably, and keystrokes that arrive early are discarded. The
+  passphrase avoids keys that do something in Limine's menu (`e` edits the entry).
+- **No serial port.** The VM has none unless `LAB_SERIAL=1` (`install.sh` sets it, to see when the install is done).
+  With one, the firmware's console list and systemd's UKI stub add `console=` for it, and Plymouth shows a plain-text
+  disk prompt instead of Omarchy's themed one (findings.md). For kernel messages while debugging a boot, set
+  `LAB_SERIAL=1` and read `serial.log`.
+- **Ports and files.** ssh is forwarded on 127.0.0.1:2223 (monarchy-identity's lab uses 2222). Each running VM keeps
+  `qmp.sock`, `swtpm.log` and screenshots (and `serial.log` with `LAB_SERIAL=1`) in its directory. Everything under
+  `test/vm/images/` and `test/vm/keys/` is git-ignored.

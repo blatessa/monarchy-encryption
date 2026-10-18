@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
+  pull_request:
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
+  workflow_call:        # for a release workflow to run before a release is cut
+
+permissions:
+  contents: read
+
+# a newer push to the same branch/PR supersedes the run in flight
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Unit tests and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get install -y --no-install-recommends shellcheck
+      - name: Shellcheck (errors only)
+        run: shellcheck -S error -s bash $(git ls-files '*.sh') bin/monarchy-encryption test/unit/stubs/*
+      - name: Allow user namespaces (the unit tests run the CLI as fake root with unshare -r)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Unit tests (the real CLI against a temp /etc with stub commands)
+        run: bash test/unit/run.sh
+
+  package:
+    name: Build the Arch package
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    timeout-minutes: 10
+    steps:
+      - name: Install git
+        run: pacman -Syu --noconfirm git
+      - uses: actions/checkout@v4
+      - name: makepkg
+        run: |
+          useradd -m builder
+          chown -R builder: "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          su builder -c 'packaging/build-local.sh --nodeps --noconfirm'
+      - name: Check package contents
+        run: |
+          p=$(ls packaging/monarchy-encryption-*.pkg.tar.*)
+          bsdtar -tf "$p" | grep -v '/$'
+          bsdtar -tf "$p" | grep -qx usr/bin/monarchy-encryption
+          bsdtar -tf "$p" | grep -qx usr/share/monarchy-encryption/lib/common.sh
+      - name: Keep the package
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: packaging/*.pkg.tar.zst
+          if-no-files-found: error
+          retention-days: 7

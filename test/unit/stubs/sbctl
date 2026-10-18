@@ -1,4 +1,33 @@
 #!/bin/bash
-# Stand-in for sbctl: records the call and succeeds. Behaviour is added with the feature that needs it, citing where the
-# real output was observed (docs/dev/findings.md).
+# Stand-in for sbctl 0.18 against the sandbox's fake firmware ($MONARCHY_ENCRYPTION_EFIVARS) and key directory
+# (behaviour as observed in the lab: docs/dev/findings.md). A file counts as signed when its content was signed
+# ($STUB_STATE/signed holds content hashes), so a copy of a signed file is signed and a rewritten one isn't.
 echo "sbctl $*" >> "$STUB_LOG"
+g=8be4df61-93ca-11d2-aa0d-00e098032b8c
+d=$MONARCHY_ENCRYPTION_SBCTL_DIR ev=$MONARCHY_ENCRYPTION_EFIVARS esp=$MONARCHY_ENCRYPTION_ESP
+signed() { [[ -f $STUB_STATE/signed ]] && grep -qx "$(b2sum <"$1" | cut -d' ' -f1)" "$STUB_STATE/signed"; }
+case $1 in
+  create-keys)
+    mkdir -p "$d/keys/PK" "$d/keys/KEK" "$d/keys/db"
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj "/CN=Platform Key" -days 1 \
+      -keyout "$d/keys/PK/PK.key" -out "$d/keys/PK/PK.pem" 2>/dev/null || exit 1
+    echo 36d02dc2-a8a0-4d81-8e16-d918893d8b41 > "$d/GUID"
+    echo "Secure boot keys created!" ;;
+  enroll-keys)
+    [[ -z ${STUB_ENROLL_FAIL:-} ]] || { echo "failed to enroll keys" >&2; exit 1; }
+    [[ $(od -An -tu1 -j4 -N1 "$ev/SetupMode-$g" 2>/dev/null | tr -d ' ') == 1 ]] || { echo "not in setup mode" >&2; exit 1; }
+    { printf '\x27\x00\x00\x00'; openssl x509 -in "$d/keys/PK/PK.pem" -outform DER; } > "$ev/PK-$g"
+    if [[ " $* " == *" --microsoft "* || " $* " == *" -m "* ]]; then
+      printf '\x27\x00\x00\x00Key Exchange Key Microsoft Corporation KEK CA 2011' > "$ev/KEK-$g"
+    fi
+    printf '\x06\x00\x00\x00\x00' > "$ev/SetupMode-$g"
+    echo "Enrolled keys to the EFI variables!" ;;
+  sign)
+    f=${!#}; [[ -f $d/keys/PK/PK.pem ]] || { echo "no keys" >&2; exit 1; }
+    b2sum <"$f" | cut -d' ' -f1 >> "$STUB_STATE/signed" ;;
+  verify)
+    while IFS= read -r f; do
+      printf '{"file_name":"%s","is_signed":%s}\n' "$f" "$(signed "$f" && echo 1 || echo 0)"
+    done < <(find "$esp" -type f -iname '*.efi*' | sort) | jq -s . ;;   # real sbctl also finds snapshot images (*.efi_sha256_*)
+  *) echo "sbctl stub: unhandled: $*" >&2; exit 1 ;;
+esac

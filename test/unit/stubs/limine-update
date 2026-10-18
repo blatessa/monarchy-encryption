@@ -1,0 +1,21 @@
+#!/bin/bash
+# Stand-in for limine-update (limine-mkinitcpio-hook 1.40, as observed in the lab: docs/dev/findings.md):
+# limine-install copies a plain Limine to the binary and the fallback path; limine-mkinitcpio builds the boot image,
+# which sbctl's mkinitcpio hook signs once keys exist; then the post hooks run: 90-limine-enroll-config enrolls the
+# menu's checksum (only if /etc/default/limine says so) and signs Limine, and the others run after it.
+echo "limine-update $*" >> "$STUB_LOG"
+[[ -z ${STUB_LIMINE_UPDATE_FAIL:-} ]] || { echo "ERROR: Failed to build the UKI." >&2; exit 1; }
+esp=$MONARCHY_ENCRYPTION_ESP etc=$MONARCHY_ENCRYPTION_ETC
+sign() { [[ -f $MONARCHY_ENCRYPTION_SBCTL_DIR/keys/PK/PK.pem ]] && sbctl sign "$1" >/dev/null; return 0; }
+cp "$STUB_STATE/limine-stock.efi" "$esp/EFI/BOOT/BOOTX64.EFI"
+cp "$STUB_STATE/limine-stock.efi" "$esp/EFI/limine/limine_x64.efi"
+echo "boot image $RANDOM$RANDOM" > "$esp/EFI/Linux/omarchy_linux-omarchy.efi"
+[[ -n ${STUB_UKI_UNSIGNED:-} ]] || sign "$esp/EFI/Linux/omarchy_linux-omarchy.efi"
+if grep -qx 'ENABLE_ENROLL_LIMINE_CONFIG=yes' "$etc/default/limine"; then
+  echo "enrolled $(b2sum "$esp/limine.conf" | cut -d' ' -f1)" >> "$esp/EFI/limine/limine_x64.efi"
+fi
+sign "$esp/EFI/limine/limine_x64.efi"
+for h in "$etc"/boot/hooks/post.d/*; do
+  [[ -f $h && -x $h && $h != *.disabled ]] && "$h"
+done
+exit 0

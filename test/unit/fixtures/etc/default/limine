@@ -1,0 +1,3 @@
+ESP_PATH="/boot"
+
+KERNEL_CMDLINE[default]+="cryptdevice=PARTUUID=188fba6b-8598-4748-b737-35f7682149c8:root root=/dev/mapper/root zswap.enabled=0 rootflags=subvol=@ rw rootfstype=btrfs"

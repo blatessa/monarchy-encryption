@@ -17,9 +17,12 @@ sha256sums=('SKIP')
 
 package_monarchy-encryption() {
   local _root="$srcdir/$pkgbase-$pkgver"
-  depends=(bash sbctl tpm2-tss systemd cryptsetup)   # all in the Arch repositories; no AUR
+  # Arch repositories, no AUR. limine-mkinitcpio-hook (limine-update) comes from Omarchy's repository, like Omarchy.
+  depends=(bash sbctl tpm2-tss systemd cryptsetup jq openssl limine-mkinitcpio-hook)
 
   install -Dm755 "$_root/bin/monarchy-encryption" "$pkgdir/usr/bin/monarchy-encryption"
-  install -Dm644 "$_root/lib/common.sh" "$pkgdir/usr/share/monarchy-encryption/lib/common.sh"
+  install -Dm644 -t "$pkgdir/usr/share/monarchy-encryption/lib" "$_root/lib/common.sh" "$_root/lib/secureboot.sh"
+  # linked by setup into /etc/boot/hooks/post.d (Limine's hook directory)
+  install -Dm755 "$_root/hooks/limine-fallback" "$pkgdir/usr/share/monarchy-encryption/hooks/limine-fallback"
   install -Dm644 "$_root/LICENSE" "$pkgdir/usr/share/licenses/monarchy-encryption/LICENSE"
 }

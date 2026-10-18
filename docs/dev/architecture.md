@@ -52,3 +52,55 @@ Omarchy's own `/etc` files is edited.
   tested), but `setup` should say so, and #6 or #7 should test it.
 - Deferred provisioning embeds a keyfile in the UKI so the disk unlocks itself until first-boot setup (see
   research.md). Not checked here: whether that path still works with a systemd initramfs. It belongs to #9.
+
+## Secure Boot with each laptop's own keys
+
+**Decision:** `setup` creates Secure Boot keys on the laptop with `sbctl`, signs everything that boots, and enrolls
+the keys (with Microsoft's alongside). Issue #4, October 2026, Omarchy 4.0.5 in the lab.
+
+**One key set per laptop, not one per organisation.** The laptop re-signs its own boot image on every kernel update,
+so its private signing key has to live on the laptop. With one organisation-wide key, one lost laptop would hold the key
+every other laptop trusts. A per-laptop key lost with its laptop trusts nothing else. Nothing has to be distributed or
+stored centrally.
+
+**Microsoft's keys stay enrolled** (`sbctl enroll-keys --microsoft`): graphics cards and other devices run option ROMs
+signed by Microsoft, and leaving them out can stop a laptop from showing anything at power-on. The cost is that
+Microsoft-signed bootloaders (Windows, shim) still start. With the TPM bound to Secure Boot state (#5), booting one of
+those should change what the TPM measures (PCR 7 records which certificate approved the loader), so the disk
+wouldn't unlock. #5 should confirm that in the lab.
+
+**Order: sign, check, then enroll.** Before the keys are in the firmware, unsigned files still start, so a failed or
+interrupted `setup` leaves a laptop that boots. `setup` refuses before changing anything if the firmware holds someone
+else's keys (not in setup mode, and the platform key isn't this laptop's). Running it again is safe.
+
+**Signing rides on Limine's tools.** Once sbctl has keys, `limine-mkinitcpio-hook` signs what it writes: sbctl's
+mkinitcpio hook signs each boot image before Limine records its hash, and `90-limine-enroll-config` signs Limine after
+enrolling. `setup` runs `limine-update` and then checks with `sbctl verify` that Limine, the fallback and the boot
+images are signed. Updates sign through the same path (tested with a kernel reinstall).
+
+**The boot menu.** With the TPM unlocking the disk, changing the kernel command line at the menu (`init=/bin/sh`) would
+be a root shell. Three things close it:
+
+1. `editor_enabled: no` in `limine.conf`, which also removes the menu's "Blank Entry".
+2. `ENABLE_ENROLL_LIMINE_CONFIG=yes` in `/etc/default/limine`: Limine's tools embed the checksum of `limine.conf`
+   into the signed Limine binary, and Limine halts on a menu that doesn't match. The ESP isn't encrypted, so without
+   this anyone with the laptop could edit the menu file directly. Limine's tools read this setting only from
+   `/etc/default/limine`, never from a drop-in, so this one line is added to a file Omarchy's installer wrote
+   (marked).
+3. The firmware's fallback loader (`EFI/BOOT/BOOTX64.EFI`) becomes the enrolled Limine. Limine's tools copy a plain
+   Limine there on every update, and choosing it from the firmware's boot menu would boot a changed menu. A Limine
+   post hook, `/etc/boot/hooks/post.d/95-monarchy-encryption-fallback`, runs after their enroll hook and replaces it.
+
+**Not covered here:**
+
+- Snapshots taken before `setup` can't be started from the boot menu any more: their boot images are unsigned, and
+  signing them would break the hash limine-snapper-sync pinned (findings.md). `setup` says how many there are. They
+  can still be restored from the running system, and every snapshot taken afterwards starts. Fleet laptops run
+  `setup` right after the install, before there are any snapshots. Making old ones bootable again is #19.
+- `omarchy-refresh-limine` replaces `limine.conf` with Omarchy's default, so the editor comes back on. The checksum
+  stays correct because it runs `limine-update`. Putting `editor_enabled: no` back belongs to `reassert` (#7).
+- The firmware's own setup screen (F2, Del, or `S` in Limine's menu) can turn Secure Boot off unless it has a password.
+  Software can't set one. With #5's policy, Secure Boot off means the TPM doesn't unlock the disk, so this isn't a way
+  in, but a firmware password is still worth recommending.
+- Anything that edits `limine.conf` without Limine's tools now stops the laptop from starting until the menu is
+  re-enrolled. Omarchy's migrations in 4.0.5 only go through the tools. Factory reset is the exception (see #9).

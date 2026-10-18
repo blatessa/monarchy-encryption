@@ -1,0 +1,13 @@
+#!/bin/bash
+# Limine post hook, linked by setup as /etc/boot/hooks/post.d/95-monarchy-encryption-fallback (after Limine's
+# 90-limine-enroll-config). Limine's tools copy a plain Limine binary to the firmware's fallback path on every update;
+# it has no enrolled checksum of limine.conf, so choosing it in the firmware's boot menu would boot a changed menu.
+# Make the fallback the enrolled, signed Limine instead.
+set -euo pipefail
+source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
+esp=$(esp_path)
+src="$esp/EFI/limine/limine_x64.efi" dst="$esp/EFI/BOOT/BOOTX64.EFI"
+[[ -f $src && -d ${dst%/*} ]] || exit 0
+cmp -s "$src" "$dst" && exit 0
+cp -f "$src" "$dst"
+sync -f "$dst"

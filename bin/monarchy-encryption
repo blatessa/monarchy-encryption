@@ -1,0 +1,33 @@
+#!/bin/bash
+# monarchy-encryption: the TPM unlocks the disk at boot, protected by Secure Boot, with a recovery key for IT.
+set -euo pipefail
+
+ROOT="${MONARCHY_ENCRYPTION_ROOT:-/usr/share/monarchy-encryption}"
+[[ -f $ROOT/lib/common.sh ]] || ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+export ME_ROOT="$ROOT"
+source "$ROOT/lib/common.sh"
+
+usage() {
+  cat <<EOF
+Usage: monarchy-encryption <command>
+
+  setup              Unlock the disk with the TPM at boot, protected by Secure Boot, and create a recovery key (root)
+  status [--json]    Show how the disk is unlocked and whether Secure Boot protects it
+  recovery-key       Create or replace the recovery key; it is printed once, for you to store (root)
+  reassert           Keep signing and boot settings right after updates (root)
+EOF
+}
+
+not_implemented() { die "$1 is not implemented yet"; }
+
+case "${1:-}" in
+  setup) need_root; not_implemented setup ;;
+  status)
+    shift
+    [[ $# -eq 0 || ($# -eq 1 && $1 == --json) ]] || { usage >&2; exit 1; }
+    not_implemented status ;;
+  recovery-key) need_root; not_implemented recovery-key ;;
+  reassert) need_root; not_implemented reassert ;;
+  -h|--help|"") usage ;;
+  *) usage >&2; exit 1 ;;
+esac

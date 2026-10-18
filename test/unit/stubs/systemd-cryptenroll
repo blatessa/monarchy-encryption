@@ -1,0 +1,4 @@
+#!/bin/bash
+# Stand-in for systemd-cryptenroll: records the call and succeeds. Behaviour is added with the feature that needs it, citing where the
+# real output was observed (docs/dev/findings.md).
+echo "systemd-cryptenroll $*" >> "$STUB_LOG"

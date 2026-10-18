@@ -4,3 +4,6 @@ test/vm/keys/
 test/vm/tpm/
 *.pkg.tar.*
 site/
+packaging/monarchy-encryption-*.tar.gz
+packaging/src/
+packaging/pkg/

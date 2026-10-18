@@ -1,0 +1,25 @@
+# Maintainer: Monarchy contributors
+pkgbase=monarchy-encryption
+pkgname=(monarchy-encryption)
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='TPM disk unlock for Omarchy, protected by Secure Boot, with a recovery key'
+arch=(any)
+url='https://github.com/blatessa/monarchy-encryption'
+license=('MIT')
+options=(!strip)
+
+# The release tarball. Its real checksum can't be filled in here, because this file is inside the tarball it would
+# checksum. Builds from a checkout: packaging/build-local.sh (it packs the working tree under this name, and makepkg
+# uses that instead of downloading).
+source=("$pkgbase-$pkgver.tar.gz::https://github.com/blatessa/monarchy-encryption/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+package_monarchy-encryption() {
+  local _root="$srcdir/$pkgbase-$pkgver"
+  depends=(bash sbctl tpm2-tss systemd cryptsetup)   # all in the Arch repositories; no AUR
+
+  install -Dm755 "$_root/bin/monarchy-encryption" "$pkgdir/usr/bin/monarchy-encryption"
+  install -Dm644 "$_root/lib/common.sh" "$pkgdir/usr/share/monarchy-encryption/lib/common.sh"
+  install -Dm644 "$_root/LICENSE" "$pkgdir/usr/share/licenses/monarchy-encryption/LICENSE"
+}

@@ -1,0 +1,3 @@
+#!/bin/bash
+# Keeps the tests' log lines out of the host journal.
+echo "logger $*" >> "$STUB_LOG"

@@ -42,8 +42,9 @@ echo "rebuilt behind our back" > "$T/boot/EFI/Linux/omarchy_linux-omarchy.efi"; 
 echo "[without root]"
 me_user status --json
 [[ $RC -eq 0 && $(js .protected) == null && $(js '.missing | length') == 0 ]] && ok "protected unknown, not a guess; nothing listed as missing" || bad "user: $OUT"
-[[ $(js '[.disk[], .secure_boot.own_keys, .secure_boot.boot_files_signed] | map(tostring) | unique | join(" ")') == "null" ]] \
+[[ $(js '[(.disk | del(.provisioning_pending))[], .secure_boot.own_keys, .secure_boot.boot_files_signed] | map(tostring) | unique | join(" ")') == "null" ]] \
   && ok "the disk and keys are null for a user" || bad "user disk: $(js .disk)"
+[[ $(js .disk.provisioning_pending) == false ]] && ok "whether first-boot setup is pending shows for a user too (file names only)" || bad "user provisioning: $(js .disk)"
 [[ $(js .secure_boot.enabled) == true ]] && ok "the firmware's own flags still show (world-readable)" || bad "user sb: $(js .secure_boot)"
 me_user status; [[ $OUT == "Protected:              unknown (run as root)"* ]] && ok "plain: unknown (run as root)" || bad "plain user: $OUT"
 sandbox; me_user status --json

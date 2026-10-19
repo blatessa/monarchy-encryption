@@ -32,6 +32,9 @@ cmd_reassert() {
   if [[ ! -f $SBCTL_DIR/keys/PK/PK.pem ]]; then
     log "setup hasn't run on this laptop: nothing to keep right"; return 0
   fi
+  if provisioning_pending; then   # the initramfs switch would lock provisioning out (initramfs_check)
+    log "Omarchy's first-boot setup is pending: leaving the boot settings alone until it's done"; return 0
+  fi
   CHANGED=0
   initramfs_check
   initramfs_apply
@@ -94,6 +97,7 @@ cmd_status() {
   # names the ones that are false. docs/reference/status-output.md.
   local out; out=$(jq -c '
     def want: {"disk.encrypted": .disk.encrypted, "disk.systemd_initramfs": .disk.systemd_initramfs,
+      "disk.no_provisioning_pending": (if .disk.provisioning_pending == null then null else (.disk.provisioning_pending | not) end),
       "disk.tpm_unlock": .disk.tpm_unlock, "disk.recovery_key": .disk.recovery_key,
       "disk.no_passphrase": (if .disk.passphrase == null then null else (.disk.passphrase | not) end),
       "secure_boot.enabled": .secure_boot.enabled, "secure_boot.own_keys": .secure_boot.own_keys,
@@ -109,6 +113,7 @@ cmd_status() {
     "Protected:              \(if .protected == null then "unknown (run as root)" elif .protected then "yes" else "no: \(.missing | join(", "))" end)",
     "Disk encrypted:         \(.disk.encrypted | yn)",
     "  ready for TPM unlock: \(.disk.systemd_initramfs | yn)",
+    "  first-boot setup:     \(if .disk.provisioning_pending then "pending (finish it before running setup)" else "done" end)",
     "  TPM unlocks it:       \(.disk.tpm_unlock | yn)\(if .disk.tpm_enrolled == true and .disk.tpm_unlock == false then " (enrolled, but the firmware or its keys changed: run setup with the recovery key)" else "" end)",
     "  recovery key:         \(.disk.recovery_key | yn)",
     "  passphrase:           \(.disk.passphrase | yn)",

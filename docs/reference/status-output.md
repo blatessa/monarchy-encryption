@@ -13,6 +13,7 @@ $ sudo monarchy-encryption status
 Protected:              no: disk.tpm_unlock
 Disk encrypted:         yes
   ready for TPM unlock: yes
+  first-boot setup:     done
   TPM unlocks it:       no (enrolled, but the firmware or its keys changed: run setup with the recovery key)
   recovery key:         yes
   passphrase:           no
@@ -36,7 +37,7 @@ One JSON object on one line. Check `protected` first. When it's `false`, `missin
   "protected": true,
   "missing": [],
   "disk": {
-    "encrypted": true, "systemd_initramfs": true,
+    "encrypted": true, "systemd_initramfs": true, "provisioning_pending": false,
     "tpm_unlock": true, "tpm_enrolled": true, "tpm_pcrs": [7],
     "recovery_key": true, "passphrase": false
   },
@@ -56,7 +57,7 @@ as root.
 |---|---|
 | `schema` | The version of this format. It changes only when a field changes meaning or goes away; new fields can be added without changing it. |
 | `protected` | `true` when everything below that `setup` takes care of is as it should be. `false` when anything is wrong (even if other things are unknown). `null` when nothing is wrong but something couldn't be checked. |
-| `missing` | The fields that keep `protected` from being `true`, written as `section.field`, for example `"disk.tpm_unlock"`. Unknown fields aren't listed. `disk.no_passphrase` is listed when the disk still has a passphrase. |
+| `missing` | The fields that keep `protected` from being `true`, written as `section.field`, for example `"disk.tpm_unlock"`. Unknown fields aren't listed. `disk.no_passphrase` is listed when the disk still has a passphrase, `disk.no_provisioning_pending` while Omarchy's first-boot setup is pending. |
 
 ### `disk`
 
@@ -64,6 +65,7 @@ as root.
 |---|---|---|
 | `encrypted` | The system disk is encrypted. | `setup` can't help: reinstall with encryption. |
 | `systemd_initramfs` | The laptop starts with the boot environment that can use the TPM. | Run `setup`. |
+| `provisioning_pending` | Omarchy's first-boot setup hasn't run yet (a laptop installed for a later owner, or after a factory reset). Shown without root too. | `false` is the goal. While it's `true`, `setup` refuses: finish first-boot setup first. |
 | `tpm_unlock` | The TPM opens the disk **right now**, so the laptop will start without asking for anything. | If `tpm_enrolled` is `true`, the firmware or its Secure Boot keys changed since `setup` (a firmware update, say): the laptop asks for the recovery key at start. Run `setup` with the recovery key. Otherwise run `setup`. |
 | `tpm_enrolled` | The TPM has been set up to open the disk (whether or not it still does). | — |
 | `tpm_pcrs` | Which measurements the TPM checks before opening the disk: `[7]` is Secure Boot's state. `null` when the TPM isn't set up. | — |

@@ -104,6 +104,9 @@ lab_ssh() {
   ssh -i "$KEY" -p "$SSH_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR "$LAB_USER@127.0.0.1" "$@"
 }
+# root_with SECRET CMD: CMD (a remote shell command) as root with SECRET on stdin, no newline after it. Secrets go
+# this way, never in a command line: sudo logs command lines to the journal (findings.md).
+root_with() { printf '%s\n%s' "$LAB_PASSWORD" "$1" | lab_ssh "sudo -S -p '' $2"; }
 lab_ssh_root() { lab_ssh "echo $LAB_PASSWORD | sudo -S -p '' $(printf '%q ' "$@")"; }   # lab_ssh_root CMD ARGS...
 
 # unlock_and_wait DIR TIMEOUT [KEY]: types the disk passphrase (or KEY) on an interval until ssh answers. Plymouth's

@@ -27,7 +27,7 @@ sandbox() {
   export MONARCHY_ENCRYPTION_TPM="$T/tpmrm0" MONARCHY_ENCRYPTION_PROVISIONING="$T/var/lib/omarchy/provisioning"
   export STUB_STATE="$T/state" STUB_LOG="$T/calls.log" PATH="$STUBS:$PATH"
   unset STUB_ENROLL_FAIL STUB_LIMINE_UPDATE_FAIL STUB_UKI_UNSIGNED STUB_NOT_LUKS STUB_ROOT_SOURCE \
-    STUB_TPM_UNLOCK_FAIL STUB_WIPE_FAIL STUB_RECOVERY_KEY_BROKEN STUB_KEY_UNREADABLE
+    STUB_TPM_UNLOCK_FAIL STUB_WIPE_FAIL STUB_RECOVERY_KEY_BROKEN STUB_KEY_UNREADABLE STUB_RESET_FAIL
   mkdir -p "$T/etc/default" "$T/etc/boot/hooks/post.d" "$T/state" "$T/home" "$T/efivars" \
     "$T/boot/EFI/limine" "$T/boot/EFI/BOOT" "$T/boot/EFI/Linux"
   cp "$FIX/boot/limine.conf" "$T/boot/"; cp "$FIX/etc/default/limine" "$T/etc/default/"

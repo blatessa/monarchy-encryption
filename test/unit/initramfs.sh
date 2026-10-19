@@ -68,6 +68,19 @@ echo "[an existing line that says the same]"
 sandbox; echo "root  UUID=8b81edbd-cf38-4664-82ab-17852814fdb0  none  luks,x-initrd.attach,discard" >> "$T/etc/crypttab"; me setup
 [[ $RC -eq 0 && $(grep -c '^root ' "$T/etc/crypttab") == 1 ]] && ok "accepted and not duplicated (its own options kept)" || bad "same line: rc $RC: $OUT"
 
+echo "[hibernation after an Omarchy factory reset: resume= names no device]"
+sandbox; mkdir -p "$T/etc/limine-entry-tool.d"
+echo 'KERNEL_CMDLINE[default]+=" resume= resume_offset=4035724"' > "$T/etc/limine-entry-tool.d/resume.conf"
+me setup
+[[ $RC -eq 0 && $(grep -v '^#' "$T/etc/limine-entry-tool.d/00-monarchy-encryption.conf") == 'KERNEL_CMDLINE[default]+=" resume=/dev/mapper/root"' ]] \
+  && ok "a drop-in names the device, sorted to land last on the command line" || bad "resume drop-in: rc $RC: $(cat "$T/etc/limine-entry-tool.d/00-monarchy-encryption.conf" 2>&1)"
+check "Omarchy's own resume.conf is left as it is" grep -qx 'KERNEL_CMDLINE\[default\]+=" resume= resume_offset=4035724"' "$T/etc/limine-entry-tool.d/resume.conf"
+: > "$STUB_LOG"; me setup; called "limine-update" && bad "rebuilt again for nothing" || ok "setup again: nothing to do"
+for c in 'resume=/dev/mapper/root resume_offset=4035724' 'rtc_cmos.use_acpi_alarm=1'; do
+  sandbox; mkdir -p "$T/etc/limine-entry-tool.d"; echo "KERNEL_CMDLINE[default]+=\" $c\"" > "$T/etc/limine-entry-tool.d/resume.conf"
+  me setup; [[ $RC -eq 0 && ! -e $T/etc/limine-entry-tool.d/00-monarchy-encryption.conf ]] && ok "no drop-in with \"$c\"" || bad "drop-in written for \"$c\""
+done
+
 echo "[status without root]"
 sandbox; me_user status --json
 [[ $(js '[.disk.encrypted, .disk.systemd_initramfs] | map(tostring) | join(" ")') == "null null" ]] && ok "null, not a guess" || bad "user: $OUT"

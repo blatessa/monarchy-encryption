@@ -143,3 +143,61 @@ restart_untyped() {
   for _ in $(seq 60); do lab_ssh true 2>/dev/null || break; sleep 1; done
   up_untyped 120 && [[ $(lab_ssh cat /proc/sys/kernel/random/boot_id) != "$old" ]]
 }
+
+# --- checkpoints ----------------------------------------------------------------------------------
+# A checkpoint is the lab VM's disk overlay, firmware variables and TPM state, saved after a clean shutdown, so a suite
+# can start from a precondition ("set up") instead of a clean install, and debugging can retry from just before a
+# failure. One built with this checkout's package is keyed to the package's files and the function that built it, and
+# rebuilt when either changes. Lab-only values it needs (the recovery key its build made, what to type at the disk
+# prompt) are kept with it under images/ (git-ignored). Only preconditions belong in one, never what a suite tests.
+CHECKPOINTS="$IMAGES/checkpoints"
+package_hash() { (cd "$VM/../.." && cat bin/* lib/* hooks/* data/* packaging/PKGBUILD packaging/*.hook 2>/dev/null) | sha256sum | cut -c1-16; }
+
+# checkpoint_unlock UNLOCK: start the stopped lab VM and wait for ssh; UNLOCK is "tpm" (type nothing) or what to type
+checkpoint_unlock() {
+  start_vm "$LAB"
+  if [[ $1 == tpm ]]; then up_untyped 180 || die "the VM didn't start with nothing typed"; else unlock_and_wait "$LAB" 300 "$1"; fi
+}
+# checkpoint_save NAME UNLOCK [ID]: save the running lab VM as NAME (shut down cleanly, copied, started again), with
+# the variables named in CHECKPOINT_VARS
+checkpoint_save() {
+  local dir="$CHECKPOINTS/$1"
+  stop_vm "$LAB"; rm -rf "$dir"; mkdir -p "$dir"
+  cp --reflink=auto "$LAB/disk.qcow2" "$LAB/vars.fd" "$dir/"; cp -r --reflink=auto "$LAB/tpm" "$dir/tpm"
+  : > "$dir/vars"; ((${#CHECKPOINT_VARS[@]})) && declare -p "${CHECKPOINT_VARS[@]}" | sed 's/^declare /declare -g /' > "$dir/vars"
+  echo "$2" > "$dir/unlock"; echo "${3:-manual}" > "$dir/id"
+  log "saved checkpoint $1"
+  checkpoint_unlock "$2"
+}
+# checkpoint_restore NAME: the lab VM back in state NAME, running, its variables set
+checkpoint_restore() {
+  local dir="$CHECKPOINTS/$1"
+  [[ -f $dir/disk.qcow2 ]] || die "no checkpoint $1"
+  stop_vm "$LAB"; rm -rf "$LAB"; mkdir -p "$LAB"
+  cp --reflink=auto "$dir/disk.qcow2" "$dir/vars.fd" "$LAB/"; cp -r --reflink=auto "$dir/tpm" "$LAB/tpm"
+  source "$dir/vars"
+  checkpoint_unlock "$(<"$dir/unlock")"
+  log "restored checkpoint $1"
+}
+# checkpoint NAME BUILD: leave the lab VM running in state NAME. BUILD (a function) gets there from anything (a clean
+# install, or another checkpoint) and sets CHECKPOINT_UNLOCK and the variables named in CHECKPOINT_VARS. Restored
+# instead of built while the package and BUILD are what they were when it was saved.
+checkpoint() {
+  local id; id=$( { package_hash; declare -f "$2"; } | sha256sum | cut -c1-16)
+  if [[ -f $CHECKPOINTS/$1/id && $(<"$CHECKPOINTS/$1/id") == "$id" ]]; then checkpoint_restore "$1"; return; fi
+  log "building checkpoint $1"
+  CHECKPOINT_VARS=() CHECKPOINT_UNLOCK=""
+  "$2"
+  checkpoint_save "$1" "$CHECKPOINT_UNLOCK" "$id"
+}
+
+# The precondition most suites after setup want: a clean install set up by this checkout's package through both runs
+# of setup (TPM unlock, no passphrase). Sets RECOVERY_KEY.
+build_set_up() {
+  "$VM/reset.sh"; "$VM/run.sh" >/dev/null
+  "$VM/install-package.sh"
+  RECOVERY_KEY=$(root_with "$LAB_PASSWORD" "monarchy-encryption setup --json 2>/dev/null" | jq -r .recovery_key)
+  lab_reboot "$LAB"
+  [[ $(root_with "$RECOVERY_KEY" "monarchy-encryption setup --json 2>/dev/null" | jq -r .done) == true ]] || die "setup didn't finish"
+  CHECKPOINT_VARS=(RECOVERY_KEY) CHECKPOINT_UNLOCK=tpm
+}

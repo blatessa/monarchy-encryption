@@ -64,6 +64,7 @@ test/vm/reset.sh         # back to the clean install: disk, firmware variables (
 test/vm/install-package.sh   # build the package from this checkout and install it in the running VM
 test/vm/boot-loop.sh N LABEL # reboot N times, typing the passphrase; counts boots that never come up
 test/vm/hibernate-loop.sh N LABEL  # hibernate N times; counts real resumes (unreliable in the lab: #21)
+test/vm/checkpoint.sh save NAME [UNLOCK] | restore NAME | list | clear   # lab states, for debugging (below)
 ```
 
 Lab suites (each resets the lab first):
@@ -79,6 +80,15 @@ Lab suites (each resets the lab first):
 
 Run long boots in the background (`setsid test/vm/install.sh </dev/null >install.log 2>&1 &`) rather than holding a
 terminal.
+
+**Checkpoints** make the loop shorter. A checkpoint is the VM's disk overlay, firmware variables and TPM state, saved
+after a clean shutdown (copied with reflinks, so it takes seconds). Suites start from a precondition with
+`checkpoint NAME BUILD`: restored when the package and the `BUILD` function are unchanged since it was saved, otherwise
+built and saved. `build_set_up` (a laptop through both runs of `setup`) is the shared one. Only preconditions go in a
+checkpoint, never what the suite is testing: `e2e-updates` starts from "set up", but no suite starts from a state its
+own subject made. For debugging, `checkpoint.sh save NAME` the VM just before a failing step and `restore NAME` to
+retry it; those are never rebuilt. Checkpoints live in `test/vm/images/checkpoints/` (git-ignored) with the values
+their build made, such as the lab's recovery key; `checkpoint.sh clear` removes them.
 
 How it fits together (`test/vm/lib.sh`):
 

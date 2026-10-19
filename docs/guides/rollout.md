@@ -13,7 +13,8 @@ Do it where the laptops are prepared, before they're handed out.
    later owner" mode: its first-boot setup re-keys the disk and removes this tool's keys
    ([status and limits](../status.md)).
 2. **Clear the firmware's Secure Boot keys** (setup mode). Many fleet laptops can be ordered or configured that way.
-3. **Install the package** (`pacman -U` the release file, as in [Getting started](../getting-started.md)).
+3. **Update, then install the package**: `omarchy update` (a fresh install has no package lists yet), then `pacman -U`
+   the release file, as in [Getting started](../getting-started.md).
 4. **First run**, with the disk passphrase. Store the recovery key it returns:
 
     ```bash

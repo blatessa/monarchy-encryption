@@ -148,3 +148,13 @@ Seen: lab VM (swtpm), Omarchy 4.0.5, systemd 262, sbctl 0.18, October 2026; issu
   certificates in `/var/lib/sbctl/keys/custom/db/` without setup mode (sbctl signs the update with the KEK).
 - **Secure Boot off, in the lab**: start the same variables, disk and TPM with `OVMF_CODE.4m.fd` (Arch's build
   without Secure Boot) instead of `OVMF_CODE.secboot.4m.fd`. PCR 7 changes, and switching back restores it.
+
+## The disk passphrase can differ from the user's password
+
+Seen: Omarchy 4.0.5 release ISO, unattended install, October 2026 (a one-off copy of `test/vm/install.sh`).
+
+`user_credentials.json` takes the disk passphrase (`encryption_password`, plain text, also needed in
+`disk_encryption` in `user_configuration.json`: see above) separately from the user's password (`users[].enc_password`,
+a crypt hash). Installed with different values, the disk opens only with `encryption_password`, and the user's
+password works for sudo but not for the disk. So a fleet install can give each laptop a disk passphrase that only the
+MDM knows, and `setup`'s second run removes it.

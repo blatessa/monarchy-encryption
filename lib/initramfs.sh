@@ -72,10 +72,15 @@ initramfs_hooks() {
 }
 
 initramfs_status_json() { # crypttab and the LUKS header are root-only: null for anyone else
-  [[ $EUID -eq 0 ]] || { printf '"disk":{"encrypted":null,"systemd_initramfs":null}'; return; }
-  local enc=false sd=false hooks
-  find_root_disk && enc=true
+  local unknown='"tpm_unlock":null,"recovery_key":null,"passphrase":null'
+  [[ $EUID -eq 0 ]] || { printf '"disk":{"encrypted":null,"systemd_initramfs":null,%s}' "$unknown"; return; }
+  local enc=false sd=false hooks keys=$unknown
+  if find_root_disk; then   # which kinds of key open it (tpm2 slots, recovery slots, passphrases with no token)
+    enc=true
+    keys=$(printf '"tpm_unlock":%s,"recovery_key":%s,"passphrase":%s' "$(json_bool tpm_enrolled)" \
+      "$(json_bool test -n "$(luks_token_slots systemd-recovery)")" "$(json_bool test -n "$(passphrase_slots)")")
+  fi
   hooks=" $(initramfs_hooks) "
   [[ $hooks == *" sd-encrypt "* && $hooks != *" encrypt "* && -n $(crypttab_entry "${ROOT_MAPPING:-root}") ]] && sd=true
-  printf '"disk":{"encrypted":%s,"systemd_initramfs":%s}' "$enc" "$sd"
+  printf '"disk":{"encrypted":%s,"systemd_initramfs":%s,%s}' "$enc" "$sd" "$keys"
 }

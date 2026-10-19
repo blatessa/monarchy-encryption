@@ -4,9 +4,9 @@ Disk unlock for [Omarchy](https://omarchy.org) laptops that more than one person
 the TPM unlock the encrypted disk at boot, protected by Secure Boot, with a recovery key IT can hold, so the login
 screen becomes the place people prove who they are.
 
-> **Status: in progress, not ready for use.** `setup` switches the laptop to a systemd initramfs and turns on Secure
-> Boot with the laptop's own keys; TPM unlock and the recovery key are not built yet. Work is tracked in
-> [issues](https://github.com/blatessa/monarchy-encryption/issues); start with [AGENTS.md](AGENTS.md).
+> **Status: in progress, not ready for use.** `setup` takes a laptop to TPM unlock with Secure Boot and a recovery
+> key, tested in a virtual machine only. Staying correct across Omarchy updates (`reassert`) isn't built yet. Work is
+> tracked in [issues](https://github.com/blatessa/monarchy-encryption/issues); start with [AGENTS.md](AGENTS.md).
 
 ## Why
 
@@ -23,27 +23,53 @@ The standard answer (BitLocker does this on Windows) is:
 - a per-laptop **recovery key**, held by IT, covers firmware changes and repairs;
 - the **login screen** is where people authenticate.
 
-## What it will do
+## What it does
 
 ```text
-monarchy-encryption setup          # Secure Boot keys + signing, systemd initramfs, TPM enrollment, recovery key
+monarchy-encryption setup [--json]          # Secure Boot, TPM unlock and a recovery key; runs twice (below)
 monarchy-encryption status [--json]
-monarchy-encryption recovery-key   # create or rotate; printed once for the caller to store
-monarchy-encryption reassert       # keep signing and boot config right after updates
+monarchy-encryption recovery-key [--json]   # create or replace; printed once for the caller to store
+monarchy-encryption reassert                # (not built yet) keep signing and boot config right after updates
 ```
 
 It's called by a person or by an MDM, the same way `monarchy-identity enroll` is.
 
+## Setting up a laptop
+
+The firmware's Secure Boot keys have to be cleared first (in its settings, "reset to setup mode" or "clear keys"):
+`setup` says so if they aren't. Then:
+
+```bash
+sudo monarchy-encryption setup     # asks for the disk passphrase; prints the recovery key: store it now
+# restart the laptop (you type the passphrase one last time)
+sudo monarchy-encryption setup     # asks again: give the recovery key, and the passphrase is removed
+```
+
+After the second run the laptop starts without asking for anything, and the login screen is where people sign in. The
+disk asks for the recovery key only when the laptop's boot software or firmware settings changed: Secure Boot turned
+off, its keys changed, or a firmware update. Type the recovery key there, then run `setup` again with it to let the
+TPM unlock the disk again.
+
+If you give the passphrase instead of the recovery key in the second run, the TPM still unlocks the disk, and the
+passphrase keeps working until you run `setup` once more with the recovery key.
+
+An MDM runs the same two steps with the secret on stdin and `--json` (`"done": false` means restart, then run again):
+
+```bash
+printf '%s\n' "$PASSPHRASE"   | monarchy-encryption setup --json   # {"done":false,"recovery_key":"…",…}
+printf '%s\n' "$RECOVERY_KEY" | monarchy-encryption setup --json   # after the restart: {"done":true,"passphrase":"removed",…}
+```
+
 ## The recovery key
 
 ```bash
-sudo monarchy-encryption recovery-key            # asks for the disk passphrase, prints the new key
+sudo monarchy-encryption recovery-key            # prints the new key (asks for a key only before setup is done)
 printf '%s\n' "$PASSPHRASE" | sudo monarchy-encryption recovery-key --json   # for an MDM or a script
 ```
 
-Each laptop has its own recovery key. It's shown once, when it's created, and never written to the laptop: store it
-right away (a password manager, or your MDM's record for the laptop). Running `recovery-key` again replaces it, and
-the old one stops working. Once the TPM unlocks the disk, no passphrase is needed to replace it.
+Each laptop has its own recovery key, created by `setup`. It's shown once, when it's created, and never written to
+the laptop: store it right away (a password manager, or your MDM's record for the laptop). `recovery-key` replaces it,
+and the old one stops working. Once the TPM unlocks the disk, no passphrase is needed to replace it.
 
 When the laptop can't unlock its disk by itself (after a firmware update or a repair, say), type the recovery key at
 the disk prompt in place of the passphrase, dashes included.

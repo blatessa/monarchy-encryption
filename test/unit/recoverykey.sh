@@ -22,7 +22,7 @@ check "the key opens the disk" opens "$key1"
 check "the key is written nowhere (files, logs, command lines)" nowhere_else "$key1"
 check "nor is the passphrase" nowhere_else "$DISK_PASSPHRASE"
 check "systemd-cryptenroll is given the passphrase on a pipe" called "systemd-cryptenroll --unlock-key-file=/dev/stdin --recovery-key /dev/vda2"
-check "the new key is tested on its own slot" called "cryptsetup open --test-passphrase --key-file=- --key-slot=1 /dev/vda2"
+check "the new key is tested on its own slot, tokens left out" called "cryptsetup open --test-passphrase --disable-external-tokens --key-file=- --key-slot=1 /dev/vda2"
 check "the log says what happened" called "logger -t monarchy-encryption -- recovery key created"
 
 echo "[replacing it, --json]"
@@ -49,8 +49,8 @@ before=$(cat "$T/state/keyslots")
 me_in "wrong passphrase" recovery-key
 [[ $RC -eq 1 && -z $OUT && $ERR == *"doesn't open the disk"* && $(cat "$T/state/keyslots") == "$before" ]] \
   && ok "a wrong passphrase: refused, no key printed, nothing changed" || bad "wrong: rc $RC: $OUT $ERR"
-me recovery-key
-[[ $RC -eq 1 && $OUT == *"give it on stdin"* && $(cat "$T/state/keyslots") == "$before" ]] \
+me_in "" recovery-key
+[[ $RC -eq 1 && $ERR == *"give it on stdin"* && $(cat "$T/state/keyslots") == "$before" ]] \
   && ok "no passphrase and no terminal: says how to give it, nothing changed" || bad "no stdin: rc $RC: $OUT"
 STUB_RECOVERY_KEY_BROKEN=1 me_in "$DISK_PASSPHRASE" recovery-key --json
 [[ $RC -eq 1 && -z $OUT && $ERR == *"removed again"* && $(cat "$T/state/keyslots") == "$before" ]] && opens "$key3" \

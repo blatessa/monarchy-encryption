@@ -23,12 +23,18 @@ for c in setup recovery-key reassert; do
   me_user "$c"; [[ $RC -eq 1 && $OUT == *"run it with sudo"* ]] && ok "$c without root is refused" || bad "$c as user: $OUT"
 done
 
+echo "[package]"
+libs=$(sed -n 's|^source "\$ROOT/lib/\([a-z]*\)\.sh"$|\1|p' "$MEBIN")
+inst=$(sed -n 's|.*/lib/"{\([a-z,]*\)}\.sh.*|\1|p' "$REPO/packaging/PKGBUILD" | tr , '\n')
+missing=$(comm -23 <(sort <<<"$libs") <(sort <<<"$inst"))
+[[ -n $libs && -z $missing ]] && ok "the PKGBUILD installs every library the CLI loads" || bad "not packaged: ${missing:-no libraries found}"
+
 echo "[harness]"
 for c in cryptsetup sbctl systemd-cryptenroll bootctl limine-update logger; do
   [[ $(command -v "$c") == "$STUBS/$c" ]] && ok "$c resolves to the stub" || bad "$c resolves to $(command -v "$c")"
 done
 : > "$STUB_LOG"
-unshare -r cryptsetup open --test-passphrase /dev/vda2 </dev/null
+unshare -r cryptsetup open --test-passphrase /dev/vda2 </dev/null 2>/dev/null
 check "a stub records the command line it was given" called "cryptsetup open --test-passphrase /dev/vda2"
 me reassert; check "the CLI logs through the logger stub, not the host journal" called "logger -t monarchy-encryption"
 result

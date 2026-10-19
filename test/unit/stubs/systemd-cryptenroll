@@ -28,7 +28,7 @@ fi
 
 case $unlock in
   tpm2)
-    grep -q '^[0-9]* tpm2 ' "$ks" || { printf 'No valid TPM2 token data found.\nNo TPM2 metadata enrolled in LUKS2 header.\n' >&2; exit 1; }
+    grep -q '^[0-9]* tpm2 -$' "$ks" || { printf 'No valid TPM2 token data found.\nNo TPM2 metadata enrolled in LUKS2 header.\n' >&2; exit 1; }
     [[ -z ${STUB_TPM_UNLOCK_FAIL:-} ]] || { echo "Failed to unseal secret using TPM2: State not recoverable" >&2; exit 1; } ;;
   key:*)
     secret=$(cat "${unlock#key:}")

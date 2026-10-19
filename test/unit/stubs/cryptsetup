@@ -1,7 +1,8 @@
 #!/bin/bash
 # Stand-in for cryptsetup 2.8 (output as seen in the lab: docs/dev/findings.md). The disk is /dev/vda2 mapped as
 # "root"; STUB_NOT_LUKS=1: nothing is mapped. Its keyslots are $STUB_STATE/keyslots (see the systemd-cryptenroll stub).
-# STUB_RECOVERY_KEY_BROKEN=1: a recovery key doesn't open the disk although it was enrolled.
+# STUB_RECOVERY_KEY_BROKEN=1: a recovery key doesn't open the disk although it was enrolled. A TPM slot whose secret
+# is "stale" no longer matches the firmware (PCR 7 changed); "-" is one that does.
 echo "cryptsetup $*" >> "$STUB_LOG"
 ks=$STUB_STATE/keyslots
 case $1 in
@@ -14,8 +15,16 @@ case $1 in
       {keyslots: (map({key: .[0], value: {type: "luks2"}}) | from_entries),
        tokens: (map(select(.[1] != "password")) | to_entries |
          map({key: (.key | tostring), value: {type: ("systemd-" + .value[1]), keyslots: [.value[0]]}}) | from_entries)}' ;;
-  open)   # open --test-passphrase --key-file=- [--key-slot=N] DEVICE
+  open)   # open --test-passphrase --token-only --token-type systemd-tpm2 DEVICE: the TPM opens it
+    if [[ " $* " == *" --token-only "* ]]; then
+      [[ -z ${STUB_TPM_UNLOCK_FAIL:-} ]] && grep -q '^[0-9]* tpm2 -$' "$ks" || { echo "No usable token is available." >&2; exit 1; }
+      echo "Key slot $(awk '$2 == "tpm2" && $3 == "-" {print $1; exit}' "$ks") unlocked."; exit 0
+    fi
+    # open --test-passphrase [--disable-external-tokens] --key-file=- [--key-slot=N] DEVICE
     secret=$(cat) slot=""
+    # without --disable-external-tokens, a TPM that opens the disk wins whatever the key (as cryptsetup 2.8 does)
+    if [[ " $* " != *" --disable-external-tokens "* && " $* " != *" --key-slot="* && -z ${STUB_TPM_UNLOCK_FAIL:-} ]] &&
+      grep -q '^[0-9]* tpm2 -$' "$ks"; then exit 0; fi
     for a in "$@"; do [[ $a == --key-slot=* ]] && slot=${a#*=}; done
     if [[ -n ${STUB_RECOVERY_KEY_BROKEN:-} ]] && grep -q "^[0-9]* recovery $secret$" "$ks"; then
       echo "No key available with this passphrase." >&2; exit 2

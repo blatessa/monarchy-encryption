@@ -179,3 +179,30 @@ Seen: lab VM, Omarchy 4.0.5, limine 12.9.3, limine-mkinitcpio-hook 1.40.0, Octob
   goes through `limine-mkinitcpio` or `limine-update`, which sign through sbctl's hook. The ones in 4.0.5 edit only
   `BOOT_ORDER` in `/etc/default/limine` and their own drop-ins, never our `ENABLE_ENROLL_LIMINE_CONFIG` line or
   `zz-monarchy-encryption.conf`. No migration runs `omarchy-refresh-limine`.
+
+## Omarchy's provisioning and factory reset
+
+Seen: Omarchy 4.0.5 in the lab (reading `omarchy-provision-owner` and `omarchy-system-factory-reset`, and trying the
+auto-unlock and `sbctl reset`), October 2026; issue #9.
+
+- **Deferred provisioning auto-unlocks with a busybox-only mechanism.** A deferred install, or a factory reset, stages
+  a throwaway passphrase as `/var/lib/omarchy/provisioning/luks-key` and `/etc/omarchy/provisioning.key`, bundles the
+  latter into the initramfs (`99-omarchy-provisioning-key.conf`, `FILES+=`), and adds
+  `cryptkey=rootfs:/etc/omarchy/provisioning.key` to the command line. The busybox `encrypt` hook reads `cryptkey=`.
+  **The systemd initramfs ignores it**: in the lab, with the key file in the boot image and on the command line, the
+  busybox initramfs unlocked with nothing typed, and after `setup`'s first run the disk asked for a passphrase. A
+  laptop set up while provisioning is pending asks for a passphrase nobody knows; only the recovery key opens it.
+- **First-boot provisioning removes every other keyslot.** `rekey_luks` adds the new owner's password with the staged
+  key, rebuilds the boot files without the auto-unlock, then `luksKillSlot`s every slot but the owner's: on a laptop
+  that's set up, the TPM and the recovery key. It also copies Omarchy's template `limine.conf` over ours (the editor
+  hook from #7 locks it again).
+- **A factory reset asks for the "current disk encryption passphrase"**, which a set-up laptop no longer has; the
+  recovery key works there. It adds the throwaway slot and leaves the others to provisioning (above).
+- **A factory reset rebuilds the boot files inside the `@factory` snapshot** (`chroot "$next" limine-update`), taken
+  right after the install: no sbctl keys, no `ENABLE_ENROLL_LIMINE_CONFIG=yes`, no monarchy-encryption. Everything it
+  writes is unsigned (not tested end to end yet: #19's snapshot finding says the firmware refuses unsigned images).
+- **`sbctl reset` hands the firmware back** from the running laptop: it removes the platform key (after `chattr -i` on
+  the PK, KEK and db variables, as for any change), the firmware is in setup mode at once, and Secure Boot is off from
+  the next start. Signed boot files keep starting.
+- The lab install (Omarchy 4.0.5 ISO, `defer_provisioning: false`) has an `@factory` subvolume, so a factory reset can
+  be tried there.

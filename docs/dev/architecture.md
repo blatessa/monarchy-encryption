@@ -131,4 +131,43 @@ the TPM slot are never touched here (removing the passphrase belongs to #5, behi
 
 **Where it goes.** stdout only: the key alone on a line, or `{"schema":1,"recovery_key":…,"previous_key":
 "none"|"removed"|"not_removed"}` with `--json`. Explanations go to stderr, the log says only "recovery key created" or
-"replaced". Storing it is the caller's job. `setup` creates one in #5, where the passphrase stops being the way in.
+"replaced". Storing it is the caller's job. `setup` creates one in its first run (below).
+
+## TPM unlock
+
+**Decision:** the TPM opens the disk at boot, bound to **PCR 7** only. `setup` gets there in **two runs** with a
+restart between, and removes the installer's passphrase once the TPM and the recovery key each open the disk. Issue
+#5, October 2026, systemd 262 and swtpm in the lab. The three choices were the owner's.
+
+**PCR 7 only.** It records the Secure Boot state: whether it's on, and which keys are enrolled (PK, KEK, db, dbx).
+Kernel and Omarchy updates don't change it, so nothing has to be re-enrolled after one (tested). Secure Boot off,
+another platform key, or a changed db all change it, and the disk asks for the recovery key (tested). Since only boot
+files signed with this laptop's key start, and the menu can't be edited (above), PCR 7 stands for "this laptop's
+signed software". What it doesn't catch: a boot image this laptop signed itself with a changed command line or
+initramfs, which needs root on the laptop first. Binding to the measured boot image too (a signed PCR 11 policy) would
+close that, at the cost of producing a signed policy on every boot image rebuild through Limine's tools: a later issue.
+
+**Two runs.** Secure Boot takes effect at the next start, and PCR 7 is measured by the firmware at boot, so
+enrolling in the same run that enrolls the keys would bind the disk to "Secure Boot off". Predicting the value
+(systemd-pcrlock) was rejected: a wrong guess on some firmware is a laptop that never unlocks by itself.
+
+1. First run (Secure Boot not on yet): the systemd initramfs, Secure Boot, then a recovery key, made **last** so the
+   output that carries it is the final one (`setup --json`: `{"done": false, "recovery_key": "…"}`). It ends with
+   "restart, then run setup again".
+2. Second run (started with Secure Boot on and this laptop's keys): enrolls the TPM (`--tpm2-device=auto
+   --tpm2-pcrs=7`), and proves it opens the disk through the same token the initramfs uses (`cryptsetup open
+   --test-passphrase --token-only --token-type systemd-tpm2`). No change to `/etc/crypttab`: systemd-cryptsetup tries
+   the TPM token by itself.
+
+Both runs read the recovery key or passphrase (terminal, or one line on stdin) and check it opens the disk **before
+anything is changed**. A finished laptop needs no input at all: `setup` then changes nothing.
+
+**The passphrase goes, by default,** only in a run unlocked with the **recovery key**: that proves the recovery key
+opens the disk and that the caller has it. A second run given the passphrase enrolls the TPM, keeps the passphrase,
+and says how to finish (an MDM just sends the key it got from the first run). The TPM is proven before the passphrase
+slots are wiped and again after. Only keyslots with no token are wiped: the installer's passphrase, or one added with
+`cryptsetup`.
+
+**A TPM slot that no longer matches** (a firmware update, or the keys changed) leaves the disk asking at boot. Running
+`setup` again with the recovery key enrolls the TPM afresh: the new slot is enrolled and proven first, then the stale
+one is removed. A new enrollment that doesn't open the disk is removed again.

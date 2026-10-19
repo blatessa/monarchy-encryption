@@ -24,6 +24,7 @@ sandbox() {
   T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
   export MONARCHY_ENCRYPTION_ETC="$T/etc" MONARCHY_ENCRYPTION_ROOT="$REPO" HOME="$T/home"
   export MONARCHY_ENCRYPTION_ESP="$T/boot" MONARCHY_ENCRYPTION_EFIVARS="$T/efivars" MONARCHY_ENCRYPTION_SBCTL_DIR="$T/sbctl"
+  export MONARCHY_ENCRYPTION_TPM="$T/tpmrm0"
   export STUB_STATE="$T/state" STUB_LOG="$T/calls.log" PATH="$STUBS:$PATH"
   unset STUB_ENROLL_FAIL STUB_LIMINE_UPDATE_FAIL STUB_UKI_UNSIGNED STUB_NOT_LUKS STUB_ROOT_SOURCE \
     STUB_TPM_UNLOCK_FAIL STUB_WIPE_FAIL STUB_RECOVERY_KEY_BROKEN STUB_KEY_UNREADABLE
@@ -37,12 +38,14 @@ sandbox() {
   echo "boot image" > "$T/boot/EFI/Linux/omarchy_linux-omarchy.efi"
   efivar SetupMode 1; efivar SecureBoot 0
   echo "0 password $DISK_PASSPHRASE" > "$T/state/keyslots"
+  : > "$T/tpmrm0"   # a TPM 2.0
   : > "$STUB_LOG"
 }
 efivar() { printf "\\x06\\x00\\x00\\x00\\x0$2" > "$T/efivars/$1-$G"; }   # efivar NAME 0|1: a one-byte UEFI variable
 
-# me ARGS...: run the CLI as (fake) root; sets OUT (stdout+stderr) and RC.
-me() { OUT=$(unshare -r "$MEBIN" "$@" 2>&1 </dev/null); RC=$?; }
+# me ARGS...: run the CLI as (fake) root with the disk passphrase on stdin, as a caller gives it; sets OUT
+# (stdout+stderr) and RC.
+me() { OUT=$(printf '%s\n' "$DISK_PASSPHRASE" | unshare -r "$MEBIN" "$@" 2>&1); RC=$?; }
 # me_in INPUT ARGS...: run the CLI as (fake) root with INPUT as one line on stdin; sets OUT (stdout), ERR and RC.
 me_in() { local in=$1; shift; OUT=$(printf '%s\n' "$in" | unshare -r "$MEBIN" "$@" 2>"$T/err"); RC=$?; ERR=$(cat "$T/err"); rm -f "$T/err"; }
 # me_user ARGS...: same, without root (the real uid).

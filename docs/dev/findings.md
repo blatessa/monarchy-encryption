@@ -123,3 +123,28 @@ Seen: lab VM, Omarchy 4.0.5, systemd 262, cryptsetup 2.8, October 2026; issue #6
   `lab_ssh_root bash -c "printf KEY | …"` writes the key to the laptop, and a leak check that greps for it fails
   because of the test itself. `e2e-recoverykey.sh` sends secrets on stdin after sudo's password (`root_with`):
   `sudo -S` reads only its own line and the command gets the rest.
+
+## TPM unlock
+
+Seen: lab VM (swtpm), Omarchy 4.0.5, systemd 262, sbctl 0.18, October 2026; issue #5.
+
+- `systemd-cryptenroll --unlock-key-file=/dev/stdin --tpm2-device=auto --tpm2-pcrs=7` enrolls in a few seconds and
+  prints `New TPM2 token enrolled as key slot N.` The token (`systemd-tpm2`) records `tpm2-pcrs: [7]` and the bank.
+- `cryptsetup open --test-passphrase --token-only --token-type systemd-tpm2 DEV` proves the TPM opens the disk now,
+  through `/usr/lib/cryptsetup/libcryptsetup-token-systemd-tpm2.so`, the same token systemd-cryptsetup uses at boot.
+- **No `tpm2-device=auto` is needed in `/etc/crypttab`**: with the token in the header, the initramfs unlocked with
+  nothing typed (about 15 s to ssh).
+- **Once a TPM token exists, `cryptsetup open --test-passphrase --key-file=- DEV` succeeds with any key**: it tries
+  the token first (`Key slot 0 unlocked.`, the TPM's slot) and never looks at the key. A first version of the CLI
+  checked the caller's key this way, so a wrong one got past setup's check, and the lab test "the passphrase no
+  longer opens the disk" failed although it was gone. Test a key with `--disable-external-tokens` (or `--key-slot=N`
+  of a slot with no token); the cryptsetup stub now behaves the same way.
+- When PCR 7 doesn't match, `systemd-cryptsetup@root` logs `TPM policy does not match current system state. Either
+  system has been tampered with or policy out-of-date: Operation not permitted` and shows the normal themed prompt; the
+  recovery key or passphrase opens the disk there.
+- **Changing the firmware's db from the running laptop**, for a test: sbctl refuses while the variables are immutable
+  (`‼ File is immutable: …/db-…  You need to chattr -i files in efivarfs`), one variable at a time. After
+  `chattr -i` on the PK, KEK and db variables, `sbctl enroll-keys --append --partial db --custom` appends the
+  certificates in `/var/lib/sbctl/keys/custom/db/` without setup mode (sbctl signs the update with the KEK).
+- **Secure Boot off, in the lab**: start the same variables, disk and TPM with `OVMF_CODE.4m.fd` (Arch's build
+  without Secure Boot) instead of `OVMF_CODE.secboot.4m.fd`. PCR 7 changes, and switching back restores it.

@@ -15,7 +15,7 @@ fingerprint() { lab_ssh_root bash -c 'md5sum /etc/mkinitcpio.conf.d/* /etc/crypt
 "$VM/install-package.sh"
 
 echo "[setup]"
-out=$(lab_ssh_root monarchy-encryption setup 2>&1) && ok "setup succeeds" || { bad "setup failed"; sed 's/^/      /' <<<"$out"; }
+out=$(root_with "$LAB_PASSWORD" "monarchy-encryption setup" 2>&1) && ok "setup succeeds" || { bad "setup failed"; sed 's/^/      /' <<<"$out"; }
 [[ $(st '[.disk.encrypted, .disk.systemd_initramfs] | map(tostring) | join(" ")') == "true true" ]] && ok "status: systemd initramfs" || bad "status: $(st .disk)"
 
 echo "[the first start]"
@@ -35,7 +35,7 @@ unlock_and_wait "$LAB" 300
 
 echo "[setup again]"
 before=$(fingerprint)
-out=$(lab_ssh_root monarchy-encryption setup 2>&1) || bad "setup rerun failed: $out"
+out=$(root_with "$LAB_PASSWORD" "monarchy-encryption setup" 2>&1) || bad "setup rerun failed: $out"
 [[ $(fingerprint) == "$before" ]] && ok "re-running changes nothing, the boot image included" || bad "rerun changed: $(diff <(echo "$before") <(fingerprint))"
 
 echo "[a snapshot]"

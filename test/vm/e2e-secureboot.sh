@@ -14,7 +14,7 @@ st() { lab_ssh_root monarchy-encryption status --json | jq -r "$1"; }
 lab_ssh_root bash -c 'snapper -c root create -d before-setup && limine-snapper-sync' >/dev/null 2>&1
 
 echo "[setup]"
-out=$(lab_ssh_root monarchy-encryption setup 2>&1) && ok "setup succeeds" || { bad "setup failed"; sed 's/^/      /' <<<"$out"; }
+out=$(root_with "$LAB_PASSWORD" "monarchy-encryption setup" 2>&1) && ok "setup succeeds" || { bad "setup failed"; sed 's/^/      /' <<<"$out"; }
 [[ $out == *"1 boot image(s) of snapshots taken before Secure Boot"* ]] && ok "it says the snapshot from before can't start from the menu" || bad "no snapshot note: $out"
 [[ $(st '[.secure_boot.own_keys, .secure_boot.microsoft_keys, .boot_menu.editor_locked, .boot_menu.config_protected, .boot_menu.fallback_protected] | map(tostring) | join(" ")') == "true true true true true" ]] \
   && ok "status: own and Microsoft keys, menu locked and protected, fallback protected" || bad "status: $(lab_ssh_root monarchy-encryption status --json)"
@@ -25,7 +25,7 @@ unsigned() { lab_ssh_root sbctl verify 2>&1 | grep '✗' | grep -v '/limine_hist
 echo "[first start with our keys]"
 reboot_vm
 [[ $(st .secure_boot.enabled) == true ]] && ok "Secure Boot is on and the laptop starts" || bad "Secure Boot not on: $(st .secure_boot)"
-out=$(lab_ssh_root monarchy-encryption setup 2>&1) && ok "setup again: succeeds, nothing to do" || bad "setup rerun: $out"
+out=$(root_with "$LAB_PASSWORD" "monarchy-encryption setup" 2>&1) && ok "setup's second run succeeds (it enrolls the TPM: e2e-tpm.sh)" || bad "setup rerun: $out"
 
 echo "[the boot menu]"
 lab_ssh_root systemctl reboot >/dev/null 2>&1 || true

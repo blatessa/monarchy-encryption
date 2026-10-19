@@ -14,16 +14,19 @@ unshare -r true 2>/dev/null || { echo "SKIP: 'unshare -r' is not allowed here (u
 
 FIX="$REPO/test/unit/fixtures"
 G=8be4df61-93ca-11d2-aa0d-00e098032b8c   # UEFI global variables
+DISK_PASSPHRASE=hunter2-sandbox-disk     # the sandbox disk's only key until a suite adds one
 
 # sandbox: a stock Omarchy laptop in a temp dir: the ESP ($T/boot) with Omarchy's limine.conf and boot files; its
 # /etc/default/limine, mkinitcpio config (busybox hooks) and crypttab; firmware variables ($T/efivars) in setup mode with
-# Secure Boot off and no keys; / on /dev/mapper/root, LUKS on /dev/vda2 (the findmnt and cryptsetup stubs).
+# Secure Boot off and no keys; / on /dev/mapper/root, LUKS on /dev/vda2 with the passphrase in its only keyslot
+# ($T/state/keyslots, read by the cryptsetup and systemd-cryptenroll stubs).
 sandbox() {
   T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
   export MONARCHY_ENCRYPTION_ETC="$T/etc" MONARCHY_ENCRYPTION_ROOT="$REPO" HOME="$T/home"
   export MONARCHY_ENCRYPTION_ESP="$T/boot" MONARCHY_ENCRYPTION_EFIVARS="$T/efivars" MONARCHY_ENCRYPTION_SBCTL_DIR="$T/sbctl"
   export STUB_STATE="$T/state" STUB_LOG="$T/calls.log" PATH="$STUBS:$PATH"
-  unset STUB_ENROLL_FAIL STUB_LIMINE_UPDATE_FAIL STUB_UKI_UNSIGNED STUB_NOT_LUKS STUB_ROOT_SOURCE
+  unset STUB_ENROLL_FAIL STUB_LIMINE_UPDATE_FAIL STUB_UKI_UNSIGNED STUB_NOT_LUKS STUB_ROOT_SOURCE \
+    STUB_TPM_UNLOCK_FAIL STUB_WIPE_FAIL STUB_RECOVERY_KEY_BROKEN STUB_KEY_UNREADABLE
   mkdir -p "$T/etc/default" "$T/etc/boot/hooks/post.d" "$T/state" "$T/home" "$T/efivars" \
     "$T/boot/EFI/limine" "$T/boot/EFI/BOOT" "$T/boot/EFI/Linux"
   cp "$FIX/boot/limine.conf" "$T/boot/"; cp "$FIX/etc/default/limine" "$T/etc/default/"
@@ -33,12 +36,15 @@ sandbox() {
   cp "$T/state/limine-stock.efi" "$T/boot/EFI/BOOT/BOOTX64.EFI"
   echo "boot image" > "$T/boot/EFI/Linux/omarchy_linux-omarchy.efi"
   efivar SetupMode 1; efivar SecureBoot 0
+  echo "0 password $DISK_PASSPHRASE" > "$T/state/keyslots"
   : > "$STUB_LOG"
 }
 efivar() { printf "\\x06\\x00\\x00\\x00\\x0$2" > "$T/efivars/$1-$G"; }   # efivar NAME 0|1: a one-byte UEFI variable
 
 # me ARGS...: run the CLI as (fake) root; sets OUT (stdout+stderr) and RC.
 me() { OUT=$(unshare -r "$MEBIN" "$@" 2>&1 </dev/null); RC=$?; }
+# me_in INPUT ARGS...: run the CLI as (fake) root with INPUT as one line on stdin; sets OUT (stdout), ERR and RC.
+me_in() { local in=$1; shift; OUT=$(printf '%s\n' "$in" | unshare -r "$MEBIN" "$@" 2>"$T/err"); RC=$?; ERR=$(cat "$T/err"); rm -f "$T/err"; }
 # me_user ARGS...: same, without root (the real uid).
 me_user() { OUT=$("$MEBIN" "$@" 2>&1 </dev/null); RC=$?; }
 called() { grep -qF -- "$1" "$STUB_LOG"; }   # did a stub see this command line?

@@ -1,11 +1,26 @@
 #!/bin/bash
 # Stand-in for cryptsetup 2.8 (output as seen in the lab: docs/dev/findings.md). The disk is /dev/vda2 mapped as
-# "root"; STUB_NOT_LUKS=1: nothing is mapped.
+# "root"; STUB_NOT_LUKS=1: nothing is mapped. Its keyslots are $STUB_STATE/keyslots (see the systemd-cryptenroll stub).
+# STUB_RECOVERY_KEY_BROKEN=1: a recovery key doesn't open the disk although it was enrolled.
 echo "cryptsetup $*" >> "$STUB_LOG"
+ks=$STUB_STATE/keyslots
 case $1 in
   status)
     [[ -z ${STUB_NOT_LUKS:-} && $2 == root ]] || { echo "/dev/mapper/$2 is inactive."; exit 4; }
     printf '/dev/mapper/root is active and is in use.\n  type:    LUKS2\n  cipher:  aes-xts-plain64\n  device:  /dev/vda2\n' ;;
   luksUUID) [[ $2 == /dev/vda2 ]] && echo 8b81edbd-cf38-4664-82ab-17852814fdb0 ;;
+  luksDump)   # --dump-json-metadata: keyslots and the tokens systemd-cryptenroll adds (none for a passphrase)
+    awk '{print $1, $2}' "$ks" | jq -Rn '[inputs | split(" ")] |
+      {keyslots: (map({key: .[0], value: {type: "luks2"}}) | from_entries),
+       tokens: (map(select(.[1] != "password")) | to_entries |
+         map({key: (.key | tostring), value: {type: ("systemd-" + .value[1]), keyslots: [.value[0]]}}) | from_entries)}' ;;
+  open)   # open --test-passphrase --key-file=- [--key-slot=N] DEVICE
+    secret=$(cat) slot=""
+    for a in "$@"; do [[ $a == --key-slot=* ]] && slot=${a#*=}; done
+    if [[ -n ${STUB_RECOVERY_KEY_BROKEN:-} ]] && grep -q "^[0-9]* recovery $secret$" "$ks"; then
+      echo "No key available with this passphrase." >&2; exit 2
+    fi
+    awk -v k="$secret" -v s="$slot" '$3 == k && (s == "" || $1 == s) {f=1} END {exit !f}' "$ks" ||
+      { echo "No key available with this passphrase." >&2; exit 2; } ;;
 esac
 exit 0

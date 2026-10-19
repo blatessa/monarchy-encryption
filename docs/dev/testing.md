@@ -27,7 +27,9 @@ real `bin/monarchy-encryption` run as fake root (`unshare -r`, through `me`; `me
 commands (`test/unit/stubs/`: `cryptsetup`, `sbctl`, `systemd-cryptenroll`, `bootctl`, `limine-update`, `logger`)
 first on `PATH`. The sandbox is a stock Omarchy laptop: an ESP (`$T/boot`) with Omarchy's `limine.conf` and boot
 files, its `/etc/default/limine` (`test/unit/fixtures/`), and firmware variables (`$T/efivars`) in setup mode.
-Each stub appends its command line to `$STUB_LOG`; `called "cryptsetup open"` checks what they saw. A suite puts the
+The disk's keyslots are `$T/state/keyslots` (the passphrase in slot 0), which the `cryptsetup` and
+`systemd-cryptenroll` stubs both read and change. `me_in INPUT ARGS` runs the CLI with one line on stdin and keeps
+stdout (`OUT`) apart from stderr (`ERR`). Each stub appends its command line to `$STUB_LOG`; `called "cryptsetup open"` checks what they saw. A suite puts the
 files it needs under `$T/etc` itself, so suites don't depend on each other or on order.
 
 Stubs start as "record and succeed". When a feature needs a tool's real output, the stub learns it, controlled by a
@@ -39,6 +41,7 @@ wrong, fix the stub and the note.
 | `cli` | Every command exists, `--help`, unknown commands and options, root checks; the harness itself (stubs shadow the real tools and record calls) |
 | `initramfs` | The drop-in's hook mapping against Omarchy's real hook config (plain, NVIDIA-only, non-Latin layout, unknown hooks), the crypttab line, refusals that change nothing, re-running that rebuilds nothing, `status` |
 | `secureboot` | `setup`'s Secure Boot part: keys, signing before enrolling, the boot menu settings, the fallback hook, re-running, every refusal leaving the machine unchanged, `status --json` |
+| `recoverykey` | `recovery-key`: created and replaced, unlocked by the passphrase, the current recovery key or the TPM; the new key proven before the old one is removed; the key on stdout or in JSON and nowhere else; refusals that leave the keyslots alone |
 
 ## The lab
 
@@ -64,6 +67,7 @@ Lab suites (each resets the lab first):
 | Suite | Covers |
 |---|---|
 | `test/vm/e2e-initramfs.sh` | `setup` on a clean install: the themed passphrase screen, systemd opens the disk, re-running changes nothing (boot image included), a snapshot starts writable; hibernation is reported, not counted, until #21 |
+| `test/vm/e2e-recoverykey.sh` | `recovery-key` after `setup`: the key opens the disk and starts the laptop when typed at the disk prompt; replaced, the old one opens nothing; the passphrase is kept; the key isn't in the journal or on disk; a wrong passphrase changes nothing |
 | `test/vm/e2e-secureboot.sh` | `setup` on a clean install; Secure Boot on after a restart; the menu has no editor; an unsigned EFI program is refused; a kernel update stays signed; a snapshot taken before setup is reported, one taken after starts; a changed menu is refused |
 
 Run long boots in the background (`setsid test/vm/install.sh </dev/null >install.log 2>&1 &`) rather than holding a

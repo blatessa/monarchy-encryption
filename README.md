@@ -33,6 +33,20 @@ monarchy-encryption reassert       # keep signing and boot config right after up
 
 It's called by a person or by an MDM, the same way `monarchy-identity enroll` is.
 
+## The recovery key
+
+```bash
+sudo monarchy-encryption recovery-key            # asks for the disk passphrase, prints the new key
+printf '%s\n' "$PASSPHRASE" | sudo monarchy-encryption recovery-key --json   # for an MDM or a script
+```
+
+Each laptop has its own recovery key. It's shown once, when it's created, and never written to the laptop: store it
+right away (a password manager, or your MDM's record for the laptop). Running `recovery-key` again replaces it, and
+the old one stops working. Once the TPM unlocks the disk, no passphrase is needed to replace it.
+
+When the laptop can't unlock its disk by itself (after a firmware update or a repair, say), type the recovery key at
+the disk prompt in place of the passphrase, dashes included.
+
 ## What it won't do
 
 - Sign-in, directory accounts, autologin: that's monarchy-identity.

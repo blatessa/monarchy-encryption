@@ -5,7 +5,7 @@ pkgver=0.1.0
 pkgrel=1
 pkgdesc='TPM disk unlock for Omarchy, protected by Secure Boot, with a recovery key'
 arch=(any)
-url='https://github.com/blatessa/monarchy-encryption'
+url='https://docs.monarchy.run/monarchy-encryption/'
 license=('MIT')
 options=(!strip)
 
@@ -29,4 +29,8 @@ package_monarchy-encryption() {
   install -Dm755 "$_root/hooks/limine-editor" "$pkgdir/usr/share/monarchy-encryption/hooks/limine-editor"
   install -Dm644 "$_root/packaging/monarchy-encryption.hook" "$pkgdir/usr/share/libalpm/hooks/zz-monarchy-encryption.hook"
   install -Dm644 "$_root/LICENSE" "$pkgdir/usr/share/licenses/monarchy-encryption/LICENSE"
+  # documentation sources (the published site is built from these with mkdocs)
+  install -d "$pkgdir/usr/share/doc/monarchy-encryption"
+  cp -a "$_root/docs/." "$pkgdir/usr/share/doc/monarchy-encryption/"
+  find "$pkgdir/usr/share/doc/monarchy-encryption" -type d -exec chmod 755 {} + -o -type f -exec chmod 644 {} +
 }

@@ -6,8 +6,10 @@ Guidance for coding agents (and humans) working in this repo. Keep it short and 
 `monarchy-encryption` makes an Omarchy (Arch + Hyprland, Limine, LUKS on btrfs) laptop unlock its disk with the TPM,
 protected by Secure Boot with the organisation's own keys, plus a per-laptop recovery key. It's a single-purpose
 utility like [monarchy-identity](https://github.com/blatessa/monarchy-identity): called by a person or an MDM, not a
-platform. Status: the empty CLI and the fast test layer exist; no feature works yet. Read `docs/research.md` before
-anything else; `docs/dev/testing.md` for how to test.
+platform. Status (October 2026): `setup` switches to a systemd initramfs and puts the laptop on Secure Boot with its
+own keys; TPM unlock (#5) and the recovery key (#6) are next, and the lab's hibernation is unreliable (#21). Read
+`docs/research.md` first, then `docs/dev/architecture.md` (decisions), `docs/dev/findings.md` (traps) and
+`docs/dev/testing.md` (the two test layers and the lab).
 
 ## Hard rules
 - **Never test on the host machine.** A bad initramfs, Secure Boot or keyslot change can make a disk unbootable or

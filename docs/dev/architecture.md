@@ -199,3 +199,54 @@ for a post-update hook to catch.
 
 **No watcher on the ESP.** A path unit or timer could catch changes made outside Limine's tools and pacman, but the
 project takes no such machinery, and the cases found all go through one of the two.
+
+## Provisioning and factory reset
+
+**Decision:** fleet laptops come from a **full unattended install**, not Omarchy's deferred provisioning, until Omarchy
+offers the hooks below. `setup` refuses while provisioning is pending (#30). A factory reset starts by handing the
+firmware back (#31). Issue #9 (design only), October 2026, Omarchy 4.0.5; evidence in findings.md, "Omarchy's
+provisioning and factory reset".
+
+**The flow that works today** (README, "Setting up a laptop"):
+
+1. Unattended install with a disk passphrase the MDM generates for this laptop, separate from the user's password.
+2. `setup` with that passphrase on stdin; the MDM stores the recovery key it returns. Restart.
+3. `setup` with the recovery key: TPM unlock, the passphrase removed.
+4. `monarchy-identity enroll`: directory sign-in.
+
+No step needs a person at the laptop, and no lasting secret crosses the MDM channel except the recovery key, which
+the MDM is meant to hold.
+
+**Why not deferred provisioning yet.** Omarchy's deferred install exists for exactly this hand-off, but its pieces
+assume it owns the disk's keys:
+
+| Omarchy does | What it does to a set-up laptop |
+|---|---|
+| Unlocks the provisioning window with `cryptkey=` and a key file in the initramfs | The systemd initramfs ignores `cryptkey=`: after `setup`'s first run the disk asks for a throwaway passphrase nobody knows (tested). |
+| First-boot re-key: add the owner's password, kill every other slot | Removes the TPM and recovery slots; the owner's password becomes the disk passphrase again (the consumer model this project replaces). |
+| Asks the owner on tty1 for a local account | A fleet laptop's people sign in with their directory account (monarchy-identity). |
+
+Ordering our own unit around `omarchy-provision-owner.service` doesn't fix these: before it, the disk can't be
+handed a TPM slot that survives the re-key; after it, the throwaway key is gone and the disk passphrase is the
+owner's, which the MDM doesn't know. And a run at first boot has nobody to hand the recovery key to: it must reach
+the MDM, never the disk. What would make it work is upstream (#32): a systemd-compatible auto-unlock (a key file in
+`/etc/crypttab`, or `rd.luks.key=`), a re-key that removes only the slot it staged, and a hook after user creation
+where `setup` and `monarchy-identity enroll` run with the staged key file as their secret.
+
+**Factory reset.** `omarchy-system-factory-reset` rebuilds the boot files from the install-time `@factory` snapshot,
+which has none of this laptop's keys, so they come out unsigned and, with the laptop's keys in the firmware, it
+doesn't start. Signing them inside the reset would put this laptop's private key into the snapshot handed to the
+next owner. Rejected. Instead, the reset gives the firmware back first: `sbctl reset` removes the platform key from
+the running laptop (tested), the firmware returns to setup mode, and the reset's boot files should then start with Secure Boot
+off (the full reset is #31's to test). The keyslots need no step of ours: the reset adds its throwaway key (the recovery key answers its passphrase
+question) and provisioning's re-key removes the rest. After the reset, `setup` starts over. A pre-reset hook upstream
+(#32) would make the hand-back automatic.
+
+**Failure modes, and what each leaves:**
+
+- `setup` run while provisioning is pending: a disk that asks for a passphrase nobody knows; the recovery key opens
+  it. Prevented by #30.
+- Factory reset without the hand-back: a laptop the firmware won't start. Fix: clear Secure Boot keys (or turn Secure
+  Boot off) in the firmware settings; it then starts with the reset's unsigned files.
+- Provisioning's re-key on a set-up laptop (a reset after the hand-back, as designed): the TPM and recovery slots are
+  gone and the owner's password opens the disk. Expected; `setup` takes it back.

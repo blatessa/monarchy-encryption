@@ -41,8 +41,9 @@ Omarchy's Quattro installer can install a machine **with no user yet**:
   to a throwaway passphrase, provisioning pending).
 
 A fleet flow wants the same shape with a different ending: install → first boot → **TPM + recovery key** (this
-project) and **directory enrollment** (monarchy-identity) instead of "re-key to the owner's password". How to hook in
-(an Omarchy extension point, or our own unit ordered around theirs) is an open question.
+project) and **directory enrollment** (monarchy-identity) instead of "re-key to the owner's password". Decided in #9:
+not yet, because provisioning's auto-unlock and re-key don't fit a systemd initramfs and TPM slots. Fleet laptops use a
+full unattended install instead (`docs/dev/architecture.md`, "Provisioning and factory reset").
 
 ## Known traps
 

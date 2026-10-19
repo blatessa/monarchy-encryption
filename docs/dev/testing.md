@@ -3,7 +3,7 @@
 Never test on a real machine: a bad initramfs, Secure Boot or keyslot change can leave a disk unbootable or
 unrecoverable. Anything that needs real firmware, a TPM or an initramfs runs in the lab.
 
-Agents and contributors: the working rules and definition of done are in [AGENTS.md](../../AGENTS.md).
+Agents and contributors: the working rules and definition of done are in [AGENTS.md](https://github.com/blatessa/monarchy-encryption/blob/main/AGENTS.md).
 
 ## Two layers
 

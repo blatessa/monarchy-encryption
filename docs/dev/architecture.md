@@ -20,7 +20,7 @@ packages Omarchy installs.
    `btrfs-overlayfs`→`sd-btrfs-overlayfs`, `resume` dropped). Mapping rather than replacing the list keeps whatever
    Omarchy decides about the rest (it drops `kms` on NVIDIA-only machines, and adds hooks over time). `sd-vconsole` is
    used only when Omarchy bundles `/etc/vconsole.conf`, so a non-Latin layout never makes the passphrase untypeable.
-   It ships as [`data/zz-monarchy-encryption.conf`](../../data/zz-monarchy-encryption.conf), and `setup` copies it in.
+   It ships as [`data/zz-monarchy-encryption.conf`](https://github.com/blatessa/monarchy-encryption/blob/main/data/zz-monarchy-encryption.conf), and `setup` copies it in.
 2. One line in `/etc/crypttab`: `root UUID=<luks uuid> none luks,x-initrd.attach` (`/etc/crypttab.initramfs` is
    deprecated in mkinitcpio 42). The name `root` keeps `/dev/mapper/root`, so `root=` and `resume=` stay valid.
 3. Rebuild the UKI (`limine-update`, as part of the Secure Boot step, so it's built and signed once).
@@ -214,8 +214,9 @@ provisioning and factory reset".
 3. `setup` with the recovery key: TPM unlock, the passphrase removed.
 4. `monarchy-identity enroll`: directory sign-in.
 
-No step needs a person at the laptop, and no lasting secret crosses the MDM channel except the recovery key, which
-the MDM is meant to hold.
+No lasting secret crosses the MDM channel except the recovery key, which the MDM is meant to hold. One step needs a
+person: the restart between the runs asks for the disk passphrase, since the TPM isn't tied to the disk until the
+second run. (An earlier version of this section said no step did; corrected while writing the user docs.)
 
 **Why not deferred provisioning yet.** Omarchy's deferred install exists for exactly this hand-off, but its pieces
 assume it owns the disk's keys:

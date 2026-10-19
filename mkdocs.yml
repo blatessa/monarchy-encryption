@@ -1,0 +1,52 @@
+site_name: monarchy-encryption
+site_description: TPM disk unlock for Omarchy, protected by Secure Boot, with a recovery key
+site_url: https://docs.monarchy.run/monarchy-encryption/
+repo_url: https://github.com/blatessa/monarchy-encryption
+repo_name: blatessa/monarchy-encryption
+edit_uri: edit/main/docs/
+docs_dir: docs
+strict: true
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle: { icon: material/weather-night, name: Dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle: { icon: material/weather-sunny, name: Light mode }
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+nav:
+  - Overview: index.md
+  - Getting started: getting-started.md
+  - Understand:
+      - How it works: concepts/how-it-works.md
+  - Guides:
+      - Roll out to a fleet: guides/rollout.md
+      - Manage laptops: guides/manage.md
+      - Troubleshooting: guides/troubleshooting.md
+  - Reference:
+      - CLI: reference/cli.md
+      - Status output: reference/status-output.md
+  - Status and limits: status.md
+  - Development:
+      - Architecture: dev/architecture.md
+      - Testing: dev/testing.md
+      - Findings: dev/findings.md
+      - Research: dev/research.md

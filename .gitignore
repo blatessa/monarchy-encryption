@@ -7,3 +7,4 @@ site/
 packaging/monarchy-encryption-*.tar.gz
 packaging/src/
 packaging/pkg/
+.venv/

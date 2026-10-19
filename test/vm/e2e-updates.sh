@@ -1,8 +1,8 @@
 #!/bin/bash
 # Lab: updates on a laptop that's fully set up (TPM unlock, no passphrase). A kernel update, a limine upgrade (Omarchy's
 # hook copies an unsigned Limine over ours), omarchy-refresh-limine (Omarchy's menu, editor on, over ours) and a
-# simulated migration each leave it starting with nothing typed, everything signed and the menu locked. Resets the
-# lab first. About 12 minutes.
+# simulated migration each leave it starting with nothing typed, everything signed and the menu locked. Starts from
+# the set-up checkpoint (lib.sh). About 6 minutes, 10 when the checkpoint is rebuilt.
 source "$(dirname "$0")/lib.sh"
 fail=0
 ok()  { printf '  PASS %s\n' "$1"; }
@@ -24,11 +24,8 @@ starts() {
   [[ $(lab_ssh_root efibootmgr | sed -n "s/^Boot$cur\\* \\([^\\t]*\\).*/\\1/p") == Limine ]] || { echo "      started by Boot$cur, not Limine"; return 1; }
 }
 
-"$VM/reset.sh"; "$VM/run.sh" >/dev/null; mkdir -p "$shots"
-"$VM/install-package.sh"
-key=$(root_with "$LAB_PASSWORD" "monarchy-encryption setup --json 2>/dev/null" | jq -r .recovery_key)
-lab_reboot "$LAB"
-[[ $(root_with "$key" "monarchy-encryption setup --json 2>/dev/null" | jq -r .done) == true ]] && ok "setup done: TPM unlock, no passphrase" || bad "setup didn't finish"
+checkpoint set-up build_set_up; key=$RECOVERY_KEY; mkdir -p "$shots"
+[[ $(lab_ssh_root monarchy-encryption status --json | jq -c '[.protected, .missing]') == '[true,[]]' ]] && ok "set up: protected" || bad "not set up"
 lab_ssh test -f /usr/share/libalpm/hooks/zz-monarchy-encryption.hook && ok "the pacman hook is installed" || bad "no pacman hook"
 
 echo "[a kernel update]"

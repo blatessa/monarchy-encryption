@@ -99,3 +99,27 @@ Seen: lab VM, Omarchy 4.0.5, October 2026, while testing #18.
   but one reboot after a resume went through cleanly.
 - Not explained yet: #21. Until it is, lab suites that hibernate retry, and a hang means a lab problem before it means
   a product one.
+
+## Recovery keys
+
+Seen: lab VM, Omarchy 4.0.5, systemd 262, cryptsetup 2.8, October 2026; issue #6.
+
+- `systemd-cryptenroll --recovery-key` prints the key on **stdout** (8 groups of 8 modhex letters joined by `-`).
+  The explanation and `New recovery key enrolled as key slot N.` go to stderr, without the key, but the key is
+  written in the middle of a stderr line (`    🔐 ` before it, the newline after), so with both captured together it
+  is not a line of its own: find it by its pattern. A first version expected a whole line, found none, and left an
+  enrolled slot whose key nobody had; the CLI now removes such a slot again. It
+  adds a `systemd-recovery` token naming the slot, which is how `luksDump --dump-json-metadata` tells recovery slots
+  from passphrase ones. There is no `--json` for enrolling (`unrecognized option '--json'`).
+- **Piping the passphrase in doesn't work**: with no `--unlock-*` option, it asks through the password agent
+  (`systemd-tty-ask-password-agent --wall`) and waits forever, whatever is on stdin. `PASSWORD=` in the environment
+  is read. `--unlock-key-file=/dev/stdin` with the passphrase piped in works, but only **without a trailing newline**
+  (with one: `Unlocking via keyfile failed: Operation not permitted`). The CLI uses the pipe, which keeps the
+  passphrase out of `/proc/*/environ`.
+- A recovery key unlocks the volume for enrolling like any passphrase.
+- `--unlock-tpm2-device=auto` with no TPM slot fails at once (rc 1, `No TPM2 metadata enrolled in LUKS2 header.`).
+- `--wipe-slot=N` asks for no key at all: root can remove any slot. It refuses only to remove every slot.
+- **Lab: never put a secret in a command line run with sudo.** sudo logs every command line to the journal, so
+  `lab_ssh_root bash -c "printf KEY | …"` writes the key to the laptop, and a leak check that greps for it fails
+  because of the test itself. `e2e-recoverykey.sh` sends secrets on stdin after sudo's password (`root_with`):
+  `sudo -S` reads only its own line and the command gets the rest.

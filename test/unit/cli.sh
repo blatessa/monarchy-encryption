@@ -12,7 +12,7 @@ me_user frobnicate; [[ $RC -eq 1 && $OUT == Usage:* ]] && ok "unknown command: u
 me_user status --bogus; [[ $RC -eq 1 && $OUT == Usage:* ]] && ok "status refuses unknown options" || bad "status --bogus: rc $RC"
 
 echo "[not implemented yet]"
-for args in recovery-key reassert; do
+for args in reassert; do
   # shellcheck disable=SC2086  # word-split on purpose: "status --json" is two arguments
   me $args
   [[ $RC -eq 1 && $OUT == *"${args%% *} is not implemented yet"* ]] && ok "$args: not implemented, exit 1" || bad "$args: rc $RC: $OUT"
@@ -30,5 +30,5 @@ done
 : > "$STUB_LOG"
 unshare -r cryptsetup open --test-passphrase /dev/vda2 </dev/null
 check "a stub records the command line it was given" called "cryptsetup open --test-passphrase /dev/vda2"
-me recovery-key; check "the CLI logs through the logger stub, not the host journal" called "logger -t monarchy-encryption"
+me reassert; check "the CLI logs through the logger stub, not the host journal" called "logger -t monarchy-encryption"
 result

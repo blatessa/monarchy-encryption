@@ -1,4 +1,50 @@
 #!/bin/bash
-# Stand-in for systemd-cryptenroll: records the call and succeeds. Behaviour is added with the feature that needs it, citing where the
-# real output was observed (docs/dev/findings.md).
+# Stand-in for systemd-cryptenroll 262 against the disk's keyslots in $STUB_STATE/keyslots ("SLOT TYPE SECRET" per
+# line; the sandbox starts with the passphrase in slot 0), shared with the cryptsetup stub. Output as observed in the
+# lab (docs/dev/findings.md, "Recovery keys"). STUB_TPM_UNLOCK_FAIL=1: the TPM won't unlock (PCRs changed).
+# STUB_KEY_UNREADABLE=1: a recovery key is enrolled but its output doesn't carry it.
 echo "systemd-cryptenroll $*" >> "$STUB_LOG"
+ks=$STUB_STATE/keyslots
+unlock=prompt enroll="" wipe=""
+for a in "$@"; do
+  case $a in
+    --unlock-key-file=*) unlock=key:${a#*=} ;;
+    --unlock-tpm2-device=*) unlock=tpm2 ;;
+    --recovery-key) enroll=recovery ;;
+    --tpm2-device=*) enroll=tpm2 ;;
+    --wipe-slot=*) wipe=${a#*=} ;;
+  esac
+done
+
+if [[ -n $wipe ]]; then   # needs no unlocking: root may wipe any slot
+  [[ -z ${STUB_WIPE_FAIL:-} ]] || { echo "Failed to wipe slots: Input/output error" >&2; exit 1; }
+  for s in ${wipe//,/ }; do
+    awk -v s="$s" '$1 != s' "$ks" > "$ks.new" && mv "$ks.new" "$ks"
+    echo "Wiped slot $s."
+  done
+  exit 0
+fi
+[[ -n $enroll ]] || { printf 'SLOT TYPE\n'; awk '{printf "%4s %s\n", $1, $2}' "$ks"; exit 0; }
+
+case $unlock in
+  tpm2)
+    grep -q '^[0-9]* tpm2 ' "$ks" || { printf 'No valid TPM2 token data found.\nNo TPM2 metadata enrolled in LUKS2 header.\n' >&2; exit 1; }
+    [[ -z ${STUB_TPM_UNLOCK_FAIL:-} ]] || { echo "Failed to unseal secret using TPM2: State not recoverable" >&2; exit 1; } ;;
+  key:*)
+    secret=$(cat "${unlock#key:}")
+    awk -v k="$secret" '$3 == k {f=1} END {exit !f}' "$ks" || { echo "Unlocking via keyfile failed: Operation not permitted" >&2; exit 1; } ;;
+  prompt) echo "stub: would wait at a password prompt (no --unlock-* given)" >&2; exit 1 ;;
+esac
+
+slot=0; while grep -q "^$slot " "$ks"; do slot=$((slot + 1)); done
+if [[ $enroll == recovery ]]; then
+  key=$(tr -dc 'cbdefghijklnrtuv' </dev/urandom | head -c 64 | sed 's/.\{8\}/&-/g; s/-$//')
+  echo "$slot recovery $key" >> "$ks"
+  printf 'A secret recovery key has been generated for this volume:\n\n    🔐 ' >&2   # the key lands on this line
+  [[ -n ${STUB_KEY_UNREADABLE:-} ]] && echo "(unreadable)" || echo "$key"
+  printf '\nPlease save this secret recovery key at a secure location.\n' >&2
+  echo "New recovery key enrolled as key slot $slot." >&2
+else
+  echo "$slot tpm2 -" >> "$ks"
+  echo "New TPM2 token enrolled as key slot $slot." >&2
+fi

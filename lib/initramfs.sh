@@ -4,7 +4,8 @@
 DROPIN_NAME="zz-monarchy-encryption.conf"   # sorts after Omarchy's mkinitcpio drop-ins
 dropin() { echo "$ETC/mkinitcpio.conf.d/$DROPIN_NAME"; }
 
-# The encrypted disk / lives on: ROOT_MAPPING (the name under /dev/mapper, "root" on Omarchy) and ROOT_LUKS_UUID.
+# The encrypted disk / lives on: ROOT_MAPPING (the name under /dev/mapper, "root" on Omarchy), ROOT_DEVICE (the LUKS
+# partition) and ROOT_LUKS_UUID.
 # Fails when / isn't on LUKS.
 find_root_disk() {
   local src dev
@@ -14,6 +15,7 @@ find_root_disk() {
   ROOT_MAPPING=${src#/dev/mapper/}
   dev=$(cryptsetup status "$ROOT_MAPPING" 2>/dev/null | sed -n 's/^ *device: *//p')
   [[ -n $dev ]] || return 1
+  ROOT_DEVICE=$dev
   ROOT_LUKS_UUID=$(cryptsetup luksUUID "$dev" 2>/dev/null) && [[ -n $ROOT_LUKS_UUID ]]
 }
 

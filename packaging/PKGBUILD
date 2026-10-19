@@ -21,7 +21,7 @@ package_monarchy-encryption() {
   depends=(bash sbctl tpm2-tss systemd cryptsetup jq openssl limine-mkinitcpio-hook)
 
   install -Dm755 "$_root/bin/monarchy-encryption" "$pkgdir/usr/bin/monarchy-encryption"
-  install -Dm644 -t "$pkgdir/usr/share/monarchy-encryption/lib" "$_root/lib/"{common,secureboot,initramfs}.sh
+  install -Dm644 -t "$pkgdir/usr/share/monarchy-encryption/lib" "$_root/lib/"{common,secureboot,initramfs,recoverykey}.sh
   # copied by setup to /etc/mkinitcpio.conf.d/
   install -Dm644 "$_root/data/zz-monarchy-encryption.conf" "$pkgdir/usr/share/monarchy-encryption/data/zz-monarchy-encryption.conf"
   # linked by setup into /etc/boot/hooks/post.d (Limine's hook directory)

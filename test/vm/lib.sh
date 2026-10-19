@@ -106,26 +106,27 @@ lab_ssh() {
 }
 lab_ssh_root() { lab_ssh "echo $LAB_PASSWORD | sudo -S -p '' $(printf '%q ' "$@")"; }   # lab_ssh_root CMD ARGS...
 
-# unlock_and_wait DIR TIMEOUT: types the disk passphrase on an interval until ssh answers. Plymouth's prompt can't be
-# read reliably, and keystrokes that arrive before it are discarded (the passphrase has no Limine menu keys in it).
+# unlock_and_wait DIR TIMEOUT [KEY]: types the disk passphrase (or KEY) on an interval until ssh answers. Plymouth's
+# prompt can't be read reliably, and keystrokes that arrive before it are discarded. The passphrase has no Limine menu
+# keys in it; a recovery key may (e, b), so type one only after setup has locked the menu editor.
 unlock_and_wait() {
-  local dir=$1 timeout=$2 start=$SECONDS next=10
+  local dir=$1 timeout=$2 key=${3:-$LAB_PASSWORD} start=$SECONDS next=10
   until lab_ssh true 2>/dev/null; do
     vm_running "$dir" || die "the VM stopped while booting"
     if ((SECONDS - start >= timeout)); then
       screenshot "$dir" "$dir/boot-timeout.png"; die "no ssh after ${timeout}s (screen: $dir/boot-timeout.png)"
     fi
-    if ((SECONDS - start >= next)); then type_text "$dir" "$LAB_PASSWORD"; press "$dir" ret; ((next += 20)); fi
+    if ((SECONDS - start >= next)); then type_text "$dir" "$key"; press "$dir" ret; ((next += 20)); fi
     sleep 2
   done
 }
 
-# lab_reboot DIR: restart the VM and wait for the *new* boot (typing the passphrase). The old system can still answer
-# ssh for a while after `systemctl reboot`, so waiting for ssh alone can land on the system that is shutting down.
+# lab_reboot DIR [KEY]: restart the VM and wait for the *new* boot (typing the passphrase, or KEY). The old system can
+# still answer ssh for a while after `systemctl reboot`, so waiting for ssh alone can land on the one shutting down.
 lab_reboot() {
   local old i; old=$(lab_ssh cat /proc/sys/kernel/random/boot_id 2>/dev/null)
   lab_ssh_root systemctl reboot >/dev/null 2>&1 || true
   for i in $(seq 60); do lab_ssh true 2>/dev/null || break; sleep 1; done
-  unlock_and_wait "$1" 300
+  unlock_and_wait "$1" 300 "${2:-}"
   [[ $(lab_ssh cat /proc/sys/kernel/random/boot_id) != "$old" ]] || die "the VM didn't restart"
 }

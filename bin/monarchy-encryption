@@ -8,6 +8,7 @@ export ME_ROOT="$ROOT"
 source "$ROOT/lib/common.sh"
 source "$ROOT/lib/secureboot.sh"
 source "$ROOT/lib/initramfs.sh"
+source "$ROOT/lib/recoverykey.sh"
 
 usage() {
   cat <<EOF
@@ -15,7 +16,8 @@ Usage: monarchy-encryption <command>
 
   setup              Unlock the disk with the TPM at boot, protected by Secure Boot, and create a recovery key (root)
   status [--json]    Show how the disk is unlocked and whether Secure Boot protects it
-  recovery-key       Create or replace the recovery key; it is printed once, for you to store (root)
+  recovery-key [--json]
+                     Create or replace the recovery key; it is printed once, for you to store (root)
   reassert           Keep signing and boot settings right after updates (root)
 EOF
 }
@@ -55,7 +57,7 @@ cmd_status() {
 case "${1:-}" in
   setup) shift; cmd_setup "$@" ;;
   status) shift; cmd_status "$@" ;;
-  recovery-key) need_root; not_implemented recovery-key ;;
+  recovery-key) shift; need_root; cmd_recovery_key "$@" ;;
   reassert) need_root; not_implemented reassert ;;
   -h|--help|"") usage ;;
   *) usage >&2; exit 1 ;;

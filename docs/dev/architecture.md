@@ -110,3 +110,25 @@ be a root shell. Three things close it:
   in, but a firmware password is still worth recommending.
 - Anything that edits `limine.conf` without Limine's tools now stops the laptop from starting until the menu is
   re-enrolled. Omarchy's migrations in 4.0.5 only go through the tools. Factory reset is the exception (see #9).
+
+## The recovery key
+
+**Decision:** `recovery-key` adds a key with `systemd-cryptenroll --recovery-key`, proves it opens the disk, hands it
+to the caller, and only then removes the previous recovery key. Issue #6, October 2026, systemd 262 in the lab.
+
+**What unlocks the change.** Adding a keyslot needs a key the disk already opens with. Decided by the owner: the TPM
+once #5 has enrolled it (`--unlock-tpm2-device=auto`, so an MDM needs no secret), and otherwise, or when the TPM
+refuses, the disk passphrase or the current recovery key, asked for on a terminal or read as one line from stdin. It
+reaches `systemd-cryptenroll` through a pipe (`--unlock-key-file=/dev/stdin`), never a file or the environment.
+Rejected: adding the slot with the volume key of the open disk (`cryptsetup luksAddKey --volume-key-file`), which
+needs no secret at all but bypasses `systemd-cryptenroll`, so the slot would carry no `systemd-recovery` token.
+
+**Order: add, prove, hand over, remove.** The new key is tested on its own slot (`cryptsetup open --test-passphrase
+--key-slot=N`). If it doesn't open the disk, its slot is removed and the old key stays. The key is printed before the
+old slot is removed, so a failed removal can't lose the only copy of the new key; the caller is told
+(`"previous_key": "not_removed"`) and the command still succeeds. Only recovery slots are removed: the passphrase and
+the TPM slot are never touched here (removing the passphrase belongs to #5, behind the same proof).
+
+**Where it goes.** stdout only: the key alone on a line, or `{"schema":1,"recovery_key":…,"previous_key":
+"none"|"removed"|"not_removed"}` with `--json`. Explanations go to stderr, the log says only "recovery key created" or
+"replaced". Storing it is the caller's job. `setup` creates one in #5, where the passphrase stops being the way in.

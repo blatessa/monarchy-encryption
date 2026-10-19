@@ -12,7 +12,7 @@ me_user frobnicate; [[ $RC -eq 1 && $OUT == Usage:* ]] && ok "unknown command: u
 me_user status --bogus; [[ $RC -eq 1 && $OUT == Usage:* ]] && ok "status refuses unknown options" || bad "status --bogus: rc $RC"
 
 echo "[root]"
-for c in setup recovery-key reassert; do
+for c in setup recovery-key reassert release; do
   me_user "$c"; [[ $RC -eq 1 && $OUT == *"run it with sudo"* ]] && ok "$c without root is refused" || bad "$c as user: $OUT"
 done
 
@@ -26,7 +26,7 @@ for h in "$REPO"/hooks/*; do
 done; ok "the PKGBUILD installs every hook"
 
 echo "[harness]"
-for c in cryptsetup sbctl systemd-cryptenroll bootctl limine-update logger; do
+for c in cryptsetup sbctl systemd-cryptenroll bootctl limine-update logger chattr; do
   [[ $(command -v "$c") == "$STUBS/$c" ]] && ok "$c resolves to the stub" || bad "$c resolves to $(command -v "$c")"
 done
 : > "$STUB_LOG"

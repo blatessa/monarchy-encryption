@@ -19,6 +19,18 @@ find_root_disk() {
   ROOT_LUKS_UUID=$(cryptsetup luksUUID "$dev" 2>/dev/null) && [[ -n $ROOT_LUKS_UUID ]]
 }
 
+# Omarchy's factory reset writes "resume= resume_offset=N" (no device: it rebuilds hibernation in a chroot). The
+# busybox initramfs ignores that; the systemd one waits for it forever and the laptop never mounts / (findings.md).
+# limine-entry-tool appends drop-ins to the command line in reverse name order, so ours is named to land last, and
+# systemd uses the last resume=.
+RESUME_DROPIN_NAME="00-monarchy-encryption.conf"
+resume_dropin() { echo "$ETC/limine-entry-tool.d/$RESUME_DROPIN_NAME"; }
+resume_device_missing() {
+  local files=("$ETC/default/limine" "$ETC"/limine-entry-tool.d/*.conf) text
+  text=" $(grep -h 'KERNEL_CMDLINE' "${files[@]}" 2>/dev/null | grep -v -F "$RESUME_DROPIN_NAME" | tr '"' ' ' | tr '\n' ' ') "
+  [[ $text == *" resume_offset="* && $text == *" resume= "* ]]
+}
+
 crypttab_line() { echo "$ROOT_MAPPING  UUID=$ROOT_LUKS_UUID  none  luks,x-initrd.attach"; }
 crypttab_entry() { awk -v n="$1" '$1 == n' "$ETC/crypttab" 2>/dev/null; }   # the line for a mapping name, if any
 # An existing line will do when it opens the same LUKS volume, with no key file, in the initramfs; more options
@@ -61,6 +73,12 @@ initramfs_apply() {
   fi
   if [[ -z $(crypttab_entry "$ROOT_MAPPING") ]]; then
     printf '%s: the disk, opened by the systemd initramfs\n%s\n' "$ME_MARK" "$(crypttab_line)" >> "$ETC/crypttab"
+    CHANGED=1
+  fi
+  if resume_device_missing && [[ ! -f $(resume_dropin) ]]; then
+    install -d -m 0755 "$(dirname "$(resume_dropin)")"
+    printf '%s: hibernation names no device (an Omarchy factory reset); the systemd initramfs needs one\nKERNEL_CMDLINE[default]+=" resume=/dev/mapper/%s"\n' \
+      "$ME_MARK" "$ROOT_MAPPING" > "$(resume_dropin)"
     CHANGED=1
   fi
   local hooks; hooks=" $(initramfs_hooks) "

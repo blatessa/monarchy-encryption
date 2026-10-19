@@ -151,6 +151,7 @@ restart_untyped() {
 # rebuilt when either changes. Lab-only values it needs (the recovery key its build made, what to type at the disk
 # prompt) are kept with it under images/ (git-ignored). Only preconditions belong in one, never what a suite tests.
 CHECKPOINTS="$IMAGES/checkpoints"
+CHECKPOINT_VARS=()   # set by a checkpoint's build; empty for one saved by hand
 package_hash() { (cd "$VM/../.." && cat bin/* lib/* hooks/* data/* packaging/PKGBUILD packaging/*.hook 2>/dev/null) | sha256sum | cut -c1-16; }
 
 # checkpoint_unlock UNLOCK: start the stopped lab VM and wait for ssh; UNLOCK is "tpm" (type nothing) or what to type

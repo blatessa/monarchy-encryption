@@ -18,6 +18,17 @@ case $1 in
          map({key: (.key | tostring), value: ({type: ("systemd-" + .value[1]), keyslots: [.value[0]]} +
            if .value[1] == "tpm2" then {"tpm2-pcrs": (.value[2] | split(",") | map(select(. != "") | tonumber))} else {} end)})
          | from_entries)}' ;;
+  luksAddKey)   # luksAddKey (--token-only --token-type systemd-tpm2 | --key-file=FILE) DEVICE NEWKEYFILE
+    new=$(cat "${!#}")
+    if [[ " $* " == *" --token-only "* ]]; then
+      [[ -z ${STUB_TPM_UNLOCK_FAIL:-} ]] && grep -q '^[0-9]* tpm2 -$' "$ks" || { echo "No usable token is available." >&2; exit 1; }
+    else
+      for a in "$@"; do [[ $a == --key-file=* ]] && kf=${a#*=}; done
+      secret=$(cat "${kf:-/dev/null}")
+      awk -v k="$secret" '$3 == k {f=1} END {exit !f}' "$ks" || { echo "No key available with this passphrase." >&2; exit 2; }
+    fi
+    slot=0; while grep -q "^$slot " "$ks"; do slot=$((slot + 1)); done
+    echo "$slot password $new" >> "$ks"; echo "Key slot $slot created." ;;
   open)   # open --test-passphrase --token-only --token-type systemd-tpm2 DEVICE: the TPM opens it
     if [[ " $* " == *" --token-only "* ]]; then
       [[ -z ${STUB_TPM_UNLOCK_FAIL:-} ]] && grep -q '^[0-9]* tpm2 -$' "$ks" || { echo "No usable token is available." >&2; exit 1; }

@@ -136,6 +136,12 @@ secureboot_setup() {
   secureboot_maintain
   warn_unbootable_snapshots
   if [[ $setup_mode == true ]]; then
+    # Setup mode can still leave KEK, db and dbx in the firmware (sbctl reset and many firmwares' "clear keys" remove
+    # only the platform key), and efivarfs makes existing variables immutable, which sbctl won't write (findings.md).
+    local v
+    for v in "$EFIVARS/KEK-$EFI_GLOBAL" "$EFIVARS/db-$EFI_IMAGE_SECURITY" "$EFIVARS/dbx-$EFI_IMAGE_SECURITY"; do
+      if [[ -e $v ]]; then chattr -i "$v" 2>/dev/null || true; fi
+    done
     # Microsoft's keys stay alongside ours: graphics cards and other devices start firmware signed by Microsoft
     sbctl enroll-keys --microsoft >/dev/null || die "putting the keys into the firmware failed; the boot files are signed and the laptop still starts"
     log "Secure Boot keys enrolled: Secure Boot is on from the next start"

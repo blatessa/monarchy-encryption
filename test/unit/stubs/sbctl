@@ -16,12 +16,19 @@ case $1 in
   enroll-keys)
     [[ -z ${STUB_ENROLL_FAIL:-} ]] || { echo "failed to enroll keys" >&2; exit 1; }
     [[ $(od -An -tu1 -j4 -N1 "$ev/SetupMode-$g" 2>/dev/null | tr -d ' ') == 1 ]] || { echo "not in setup mode" >&2; exit 1; }
+    for v in "$STUB_STATE"/immutable/*; do [[ -e $v ]] && { echo "‼ File is immutable: $ev/${v##*/}" >&2; exit 1; }; done
     { printf '\x27\x00\x00\x00'; openssl x509 -in "$d/keys/PK/PK.pem" -outform DER; } > "$ev/PK-$g"
     if [[ " $* " == *" --microsoft "* || " $* " == *" -m "* ]]; then
       printf '\x27\x00\x00\x00Key Exchange Key Microsoft Corporation KEK CA 2011' > "$ev/KEK-$g"
     fi
     printf '\x06\x00\x00\x00\x00' > "$ev/SetupMode-$g"
     echo "Enrolled keys to the EFI variables!" ;;
+  reset)   # removes the platform key: the firmware is in setup mode (as observed in the lab). STUB_RESET_FAIL=1: fails
+    [[ -z ${STUB_RESET_FAIL:-} ]] || { echo "failed to reset keys" >&2; exit 1; }
+    rm -f "$ev/PK-$g"; printf '\x06\x00\x00\x00\x01' > "$ev/SetupMode-$g"
+    # only the platform key goes: KEK stays, immutable as efivarfs leaves existing variables (see chattr)
+    [[ -e $ev/KEK-$g ]] && { mkdir -p "$STUB_STATE/immutable"; : > "$STUB_STATE/immutable/KEK-$g"; }
+    echo "✓ Removed Platform Key!" ;;
   sign)
     f=${!#}; [[ -f $d/keys/PK/PK.pem ]] || { echo "no keys" >&2; exit 1; }
     b2sum <"$f" | cut -d' ' -f1 >> "$STUB_STATE/signed" ;;

@@ -204,5 +204,43 @@ auto-unlock and `sbctl reset`), October 2026; issue #9.
 - **`sbctl reset` hands the firmware back** from the running laptop: it removes the platform key (after `chattr -i` on
   the PK, KEK and db variables, as for any change), the firmware is in setup mode at once, and Secure Boot is off from
   the next start. Signed boot files keep starting.
+- **`sbctl reset` removes only the platform key**: KEK and db stay in the firmware, and efivarfs keeps them immutable.
+  Enrolling keys again then fails (`‼ File is immutable: …/KEK-…`, `…/db-…`) until `chattr -i` on each, so `setup`
+  clears the flag on any leftover KEK, db and dbx before enrolling. Firmwares whose "clear keys" or "reset to setup
+  mode" removes only the platform key leave the same state. Found by `e2e-release.sh` (setup after a release and a
+  factory reset).
 - The lab install (Omarchy 4.0.5 ISO, `defer_provisioning: false`) has an `@factory` subvolume, so a factory reset can
   be tried there.
+
+## Driving Omarchy's factory reset and first-boot setup in the lab
+
+Seen: lab VM, Omarchy 4.0.5, gum 0.17 (bubbletea v2), October 2026; issue #31 (`test/vm/e2e-release.sh`).
+
+- **gum panics on a terminal with no size** (`runtime error: makeslice: len out of range` in
+  `textinput.placeholderView`). `script -qec CMD /dev/null` over a non-interactive ssh gives a 0-column pty: run
+  `stty cols 120 rows 40` first. The reset's prompts (type `reset`, the disk passphrase, "Reboot now?") then take
+  keystrokes piped through `script`.
+- **OCR splits monospaced words**: tesseract reads first-boot setup's `Confirm>` as `Conf irm>`. Compare with spaces
+  removed.
+- **sshd answers before first-boot setup has finished**: provisioning re-keys the disk in the background on tty1 after
+  the form, so wait for `/var/lib/omarchy/provisioning/pending` to go before looking at keyslots. Mid-way the disk had
+  the throwaway, recovery and owner slots; afterwards only the owner's.
+- **The reset removes every account**, so ssh after it needs a key where provisioning installs one from:
+  `/var/lib/omarchy/provisioning/authorized_keys` inside `@factory` (a read-only snapshot: `btrfs property set -ts
+  … ro false`, then back). Harness only.
+- `@factory` predates our package, so after a reset `monarchy-encryption` has to be installed again.
+
+## An Omarchy factory reset leaves hibernation with no device, which hangs the systemd initramfs
+
+Seen: lab VM, Omarchy 4.0.5, systemd 262, October 2026; issue #31 (`e2e-release.sh`: setup after a factory reset).
+
+- The reset rebuilds hibernation inside a chroot of `@factory` (`omarchy-hibernation-setup --force --no-rebuild`) and
+  writes `/etc/limine-entry-tool.d/resume.conf` as `resume= resume_offset=N`: **no device**. Omarchy's busybox
+  initramfs ignores an empty `resume=`. The systemd initramfs unlocked the disk and then sat at `A start job is
+  running for / (… / no limit)` forever, on every boot. With `resume=/dev/mapper/root` it boots.
+- **limine-entry-tool appends `/etc/limine-entry-tool.d/*.conf` to the command line in reverse name order**: a `zz-`
+  drop-in landed before Omarchy's `resume.conf`, a `00-` one after it. systemd uses the last `resume=`. So `setup`
+  writes `00-monarchy-encryption.conf` with the device when the configuration has a `resume_offset=` and an empty
+  `resume=`, and leaves Omarchy's file alone. Reported upstream through #32.
+- Found in minutes rather than hours thanks to lab checkpoints: `after-first-boot` saved once, then each attempt
+  restored it (about 20 s) instead of replaying release, reset and first-boot setup (about 15 min).

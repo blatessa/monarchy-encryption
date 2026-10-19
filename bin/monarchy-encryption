@@ -10,6 +10,7 @@ source "$ROOT/lib/secureboot.sh"
 source "$ROOT/lib/initramfs.sh"
 source "$ROOT/lib/recoverykey.sh"
 source "$ROOT/lib/tpm.sh"
+source "$ROOT/lib/release.sh"
 
 usage() {
   cat <<EOF
@@ -21,6 +22,8 @@ Usage: monarchy-encryption <command>
   recovery-key [--json]
                      Create or replace the recovery key; it is printed once, for you to store (root)
   reassert           Put back boot settings and signatures an update undid; run by a pacman hook (root)
+  release            Undo setup: the disk opens with a new passphrase, Secure Boot is handed back (root).
+                     Before Omarchy's factory reset, or when a laptop leaves management
 EOF
 }
 
@@ -132,6 +135,7 @@ case "${1:-}" in
   status) shift; cmd_status "$@" ;;
   recovery-key) shift; need_root; cmd_recovery_key "$@" ;;
   reassert) shift; need_root; cmd_reassert "$@" ;;
+  release) shift; need_root; cmd_release "$@" ;;
   -h|--help|"") usage ;;
   *) usage >&2; exit 1 ;;
 esac

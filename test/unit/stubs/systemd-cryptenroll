@@ -5,13 +5,14 @@
 # STUB_KEY_UNREADABLE=1: a recovery key is enrolled but its output doesn't carry it.
 echo "systemd-cryptenroll $*" >> "$STUB_LOG"
 ks=$STUB_STATE/keyslots
-unlock=prompt enroll="" wipe=""
+unlock=prompt enroll="" wipe="" pcrs=7   # systemd's default PCR set is 7 too
 for a in "$@"; do
   case $a in
     --unlock-key-file=*) unlock=key:${a#*=} ;;
     --unlock-tpm2-device=*) unlock=tpm2 ;;
     --recovery-key) enroll=recovery ;;
     --tpm2-device=*) enroll=tpm2 ;;
+    --tpm2-pcrs=*) pcrs=${a#*=} ;;
     --wipe-slot=*) wipe=${a#*=} ;;
   esac
 done
@@ -46,5 +47,6 @@ if [[ $enroll == recovery ]]; then
   echo "New recovery key enrolled as key slot $slot." >&2
 else
   echo "$slot tpm2 -" >> "$ks"
+  echo "$pcrs" > "$STUB_STATE/tpm2-pcrs-$slot"   # the token's tpm2-pcrs, for cryptsetup luksDump
   echo "New TPM2 token enrolled as key slot $slot." >&2
 fi

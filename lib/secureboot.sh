@@ -145,13 +145,14 @@ secureboot_setup() {
 # --- status -------------------------------------------------------------------------------------------------------
 json_bool() { if "$@" 2>/dev/null; then echo true; else echo false; fi; }
 secureboot_status_json() { # values only root can know are null for anyone else
-  local enabled setup_mode own=null editor=null cfg=null fb=null
+  local enabled setup_mode own=null signed=null editor=null cfg=null fb=null
   enabled=$(efi_flag SecureBoot); setup_mode=$(efi_flag SetupMode)
   if [[ $EUID -eq 0 ]]; then
     own=$(json_bool own_keys_enrolled)
+    [[ -f $SBCTL_DIR/keys/PK/PK.pem ]] && signed=$(json_bool test -z "$(unsigned_boot_files)") || signed=false
     editor=$(json_bool editor_locked); cfg=$(json_bool config_protected); fb=$(json_bool fallback_protected)
   fi
-  printf '"secure_boot":{"enabled":%s,"setup_mode":%s,"own_keys":%s,"microsoft_keys":%s},' \
-    "${enabled:-false}" "${setup_mode:-false}" "$own" "$(json_bool microsoft_keys_enrolled)"
+  printf '"secure_boot":{"enabled":%s,"setup_mode":%s,"own_keys":%s,"microsoft_keys":%s,"boot_files_signed":%s},' \
+    "${enabled:-false}" "${setup_mode:-false}" "$own" "$(json_bool microsoft_keys_enrolled)" "$signed"
   printf '"boot_menu":{"editor_locked":%s,"config_protected":%s,"fallback_protected":%s}' "$editor" "$cfg" "$fb"
 }

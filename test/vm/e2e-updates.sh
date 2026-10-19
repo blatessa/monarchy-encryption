@@ -10,10 +10,11 @@ bad() { printf '  FAIL %s\n' "$1"; fail=1; }
 shots=$LAB/e2e-updates; menu_text() { screenshot "$LAB" "$shots/m.png"; tesseract "$shots/m.png" - 2>/dev/null; }
 pkg() { lab_ssh_root env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -S --noconfirm "$@" 2>&1; }
 unsigned() { lab_ssh_root sbctl verify 2>&1 | grep '✗' | grep -v '/limine_history/' || true; }
-# kept: everything signed, the menu locked, enrolled and its fallback protected, and our keys in the firmware
+# kept: status says protected with nothing missing (everything signed, the menu locked and enrolled, the TPM opens
+# the disk), and sbctl agrees nothing is unsigned
 kept() {
   local j; j=$(lab_ssh_root monarchy-encryption status --json)
-  [[ -z $(unsigned) && $(jq '[.boot_menu[], .secure_boot.enabled, .secure_boot.own_keys] | all' <<<"$j") == true ]] || {
+  [[ -z $(unsigned) && $(jq -c '[.protected, .missing]' <<<"$j") == '[true,[]]' ]] || {
     echo "      unsigned: $(unsigned)"; echo "      status: $j"; return 1; }
 }
 # starts: restarts with nothing typed, started by the firmware's Limine entry (not its fallback)

@@ -244,3 +244,12 @@ Seen: lab VM, Omarchy 4.0.5, systemd 262, October 2026; issue #31 (`e2e-release.
   `resume=`, and leaves Omarchy's file alone. Reported upstream through #32.
 - Found in minutes rather than hours thanks to lab checkpoints: `after-first-boot` saved once, then each attempt
   restored it (about 20 s) instead of replaying release, reset and first-boot setup (about 15 min).
+
+## A fresh Omarchy install can't resolve the package's dependencies
+
+Seen: installing the v0.1.0 release file in the lab (a fresh install from the Omarchy 4.0.5 ISO), October 2026.
+
+The ISO installs from an offline repository and leaves no sync databases (`/var/lib/pacman/sync/` has only
+`offline.db`), so `pacman -U monarchy-encryption-*.pkg.tar.zst` fails with `unable to satisfy dependency 'sbctl'`.
+After `omarchy update` (or `pacman -Sy`, which Omarchy's guard allows with `OMARCHY_ALLOW_DIRECT_PACMAN=1`) it
+installs. The docs say to update first; `test/vm/install-package.sh` syncs before installing.

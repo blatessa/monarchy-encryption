@@ -18,8 +18,9 @@ close.
 
 ## 2. Install
 
-Download the `.pkg.tar.zst` file and `SHA256SUMS` from the
-[releases page](https://github.com/blatessa/monarchy-encryption/releases), then:
+On a freshly installed laptop, run `omarchy update` first: until then pacman has no package lists, and can't fetch the
+few things this package needs (`sbctl` among them). Then download the `.pkg.tar.zst` file and `SHA256SUMS` from the
+[releases page](https://github.com/blatessa/monarchy-encryption/releases), and:
 
 ```bash
 sha256sum -c --ignore-missing SHA256SUMS

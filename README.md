@@ -38,7 +38,8 @@ It's called by a person or by an MDM, the same way `monarchy-identity enroll` is
 
 `setup` runs twice, with a restart in between: Secure Boot only takes effect at the next start, and the TPM can only
 be tied to it after that. Each run needs a key the disk already opens with. The firmware's Secure Boot keys have to be
-cleared first (in its settings, "reset to setup mode" or "clear keys"); `setup` says so if they aren't.
+cleared first (in its settings, "reset to setup mode" or "clear keys"); `setup` says so if they aren't. A laptop
+installed for a later owner, or factory reset, must finish Omarchy's first-boot setup before `setup` will run.
 
 ### A laptop that's already in use
 

@@ -29,8 +29,20 @@ crypttab_entry_ok() {
   [[ $name == "$ROOT_MAPPING" && $dev == "UUID=$ROOT_LUKS_UUID" && ($key == none || $key == -) && ,$opts, == *,x-initrd.attach,* ]]
 }
 
+# Omarchy's first-boot provisioning is pending (a deferred install, or a factory reset): the disk unlocks with a key
+# file through cryptkey=, which only the busybox initramfs reads (findings.md). Switching now would leave a disk that
+# asks for a passphrase nobody knows, and provisioning's re-key would remove our keyslots anyway.
+provisioning_pending() {
+  [[ -e $OMARCHY_PROVISIONING/pending || -e $ETC/omarchy/provisioning.key ||
+    -e $ETC/mkinitcpio.conf.d/99-omarchy-provisioning-key.conf ||
+    -e $ETC/limine-entry-tool.d/99-omarchy-provisioning-unlock.conf ]]
+}
+
 # Refuses before anything is changed: called by setup up front.
 initramfs_check() {
+  provisioning_pending && die "Omarchy's first-boot setup hasn't finished on this laptop: its disk still unlocks with \
+the key file that setup provides, which the boot environment TPM unlock needs can't use. Finish first-boot setup \
+(create the user at the first start), then run setup again. Nothing was changed."
   find_root_disk || die "this laptop's disk isn't encrypted (/ is not on a LUKS volume), so there is nothing to unlock"
   local have; have=$(crypttab_entry "$ROOT_MAPPING")
   if [[ -n $have ]] && ! crypttab_entry_ok "$have"; then
@@ -72,10 +84,11 @@ initramfs_hooks() {
 }
 
 initramfs_status_json() { # crypttab and the LUKS header are root-only: null for anyone else
-  [[ $EUID -eq 0 ]] || { printf '"disk":{"encrypted":null,"systemd_initramfs":null,%s}' "$(disk_keys_status_json)"; return; }
+  local pending; pending=$(json_bool provisioning_pending)   # file names only: anyone can see them
+  [[ $EUID -eq 0 ]] || { printf '"disk":{"encrypted":null,"systemd_initramfs":null,"provisioning_pending":%s,%s}' "$pending" "$(disk_keys_status_json)"; return; }
   local enc=false sd=false hooks
   find_root_disk && enc=true
   hooks=" $(initramfs_hooks) "
   [[ $hooks == *" sd-encrypt "* && $hooks != *" encrypt "* && -n $(crypttab_entry "${ROOT_MAPPING:-root}") ]] && sd=true
-  printf '"disk":{"encrypted":%s,"systemd_initramfs":%s,%s}' "$enc" "$sd" "$(disk_keys_status_json)"
+  printf '"disk":{"encrypted":%s,"systemd_initramfs":%s,"provisioning_pending":%s,%s}' "$enc" "$sd" "$pending" "$(disk_keys_status_json)"
 }

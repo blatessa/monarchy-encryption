@@ -42,6 +42,7 @@ wrong, fix the stub and the note.
 | `initramfs` | The drop-in's hook mapping against Omarchy's real hook config (plain, NVIDIA-only, non-Latin layout, unknown hooks), the crypttab line, refusals that change nothing, re-running that rebuilds nothing, `status` |
 | `secureboot` | `setup`'s Secure Boot part: keys, signing before enrolling, the boot menu settings, the fallback hook, re-running, every refusal leaving the machine unchanged, `status --json` |
 | `status` | `status --json` from a stock install through both runs of `setup`: `protected` and `missing`, the TPM enrolled but no longer opening the disk, an unsigned boot image, null without root, and changing nothing |
+| `reassert` | `reassert` and the editor hook: nothing to do before setup or when nothing changed; Omarchy's menu copied over ours stays locked through `limine-update`; an unsigned Limine, the enroll setting, the drop-in, a missing hook and an unsigned boot image put back; a stale TPM reported, no key touched; the pacman hook's name, action and triggers |
 | `tpm` | `setup`'s two runs: the recovery key last in the first; after the restart, the TPM bound to PCR 7 and proven; the passphrase removed only in a run unlocked with the recovery key; a stale TPM slot enrolled afresh; no TPM, a TPM that doesn't open the disk, a wrong or missing passphrase: refused with the keyslots unchanged; `status` |
 | `recoverykey` | `recovery-key`: created and replaced, unlocked by the passphrase, the current recovery key or the TPM; the new key proven before the old one is removed; the key on stdout or in JSON and nowhere else; refusals that leave the keyslots alone |
 
@@ -70,6 +71,7 @@ Lab suites (each resets the lab first):
 |---|---|
 | `test/vm/e2e-initramfs.sh` | `setup` on a clean install: the themed passphrase screen, systemd opens the disk, re-running changes nothing (boot image included), a snapshot starts writable; hibernation is reported, not counted, until #21 |
 | `test/vm/e2e-recoverykey.sh` | `recovery-key` after `setup`: the key opens the disk and starts the laptop when typed at the disk prompt; replaced, the old one opens nothing; the passphrase is kept; the key isn't in the journal or on disk; a wrong passphrase changes nothing |
+| `test/vm/e2e-updates.sh` | On a laptop that's fully set up: a kernel update, a limine upgrade, `omarchy-refresh-limine` and a simulated migration each leave it starting with nothing typed from its Limine entry, everything signed, the menu locked (no Edit on screen) and enrolled |
 | `test/vm/e2e-tpm.sh` | `setup`'s two runs end with the laptop starting with nothing typed; the passphrase removed with the recovery key; a kernel update still unlocks; Secure Boot off (OVMF without Secure Boot) and a changed db bring back the prompt, which the recovery key opens; setup then enrolls the TPM afresh; `status` before, during and after |
 | `test/vm/e2e-secureboot.sh` | `setup` on a clean install; Secure Boot on after a restart; the menu has no editor; an unsigned EFI program is refused; a kernel update stays signed; a snapshot taken before setup is reported, one taken after starts; a changed menu is refused |
 

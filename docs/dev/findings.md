@@ -158,3 +158,24 @@ Seen: Omarchy 4.0.5 release ISO, unattended install, October 2026 (a one-off cop
 a crypt hash). Installed with different values, the disk opens only with `encryption_password`, and the user's
 password works for sudo but not for the disk. So a fleet install can give each laptop a disk passphrase that only the
 MDM knows, and `setup`'s second run removes it.
+
+## Updates after setup
+
+Seen: lab VM, Omarchy 4.0.5, limine 12.9.3, limine-mkinitcpio-hook 1.40.0, October 2026; issue #7.
+
+- **A limine upgrade (or reinstall) leaves Limine unsigned.** pacman runs hooks in name order across
+  `/usr/share/libalpm/hooks` and `/etc/pacman.d/hooks`. Limine's `80-limine-efi-deploy` runs `limine-install`, which
+  enrolls the menu and signs Limine. Then Omarchy's `/etc/pacman.d/hooks/99-omarchy-limine.hook` copies the plain
+  `/usr/share/limine/BOOTX64.EFI` over `EFI/limine/limine_x64.efi`: unsigned, nothing enrolled. With Secure Boot on,
+  the firmware refuses its Limine entry and starts the next one: in the lab, the fallback `EFI/BOOT/BOOTX64.EFI`
+  (enrolled and signed thanks to our fallback hook), so it still started, with `BootCurrent` showing a different entry.
+  A firmware with no fallback entry wouldn't start. `zz-monarchy-encryption.hook` sorts after it and re-signs.
+- **`omarchy-refresh-limine` re-opens the boot menu editor**, correctly enrolled: it copies Omarchy's default
+  `limine.conf` (no `editor_enabled: no`) over ours and runs `limine-update`, which enrolls the new menu's checksum.
+  Everything is signed and the laptop starts with the TPM, but the menu can be edited again. Limine runs its post
+  hooks (`/etc/boot/hooks/post.d`) in name order, its own `90-limine-enroll-config` among them, so a hook named `85-`
+  can lock the menu before its checksum is enrolled.
+- **Kernel updates and Omarchy migrations stay correct** on their own. Every migration that rebuilds the boot image
+  goes through `limine-mkinitcpio` or `limine-update`, which sign through sbctl's hook. The ones in 4.0.5 edit only
+  `BOOT_ORDER` in `/etc/default/limine` and their own drop-ins, never our `ENABLE_ENROLL_LIMINE_CONFIG` line or
+  `zz-monarchy-encryption.conf`. No migration runs `omarchy-refresh-limine`.

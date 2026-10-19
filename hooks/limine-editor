@@ -1,0 +1,10 @@
+#!/bin/bash
+# Limine post hook, linked by setup as /etc/boot/hooks/post.d/85-monarchy-encryption-editor, before Limine's
+# 90-limine-enroll-config. Anything that rewrites limine.conf through Limine's tools (omarchy-refresh-limine copies
+# Omarchy's default over it) brings the boot menu editor back, and with TPM unlock an editable kernel command line is a
+# root shell. Lock it again before the menu's checksum is enrolled, so the enrolled menu is always a locked one.
+set -euo pipefail
+lib="$(dirname "$(readlink -f "$0")")/../lib"
+source "$lib/common.sh"
+source "$lib/secureboot.sh"
+lock_editor

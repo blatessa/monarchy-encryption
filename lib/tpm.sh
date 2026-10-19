@@ -54,3 +54,18 @@ remove_passphrases() {
   log "the disk passphrase was removed: the TPM and the recovery key open the disk"
   echo removed
 }
+
+# --- status -------------------------------------------------------------------------------------------------------
+# Which keys open the disk: the TPM now (not only enrolled: after a firmware update it no longer matches), the PCRs it's
+# bound to, a recovery key, a passphrase. The LUKS header is root-only: null for anyone else, or when / isn't on LUKS.
+disk_keys_status_json() {
+  if [[ $EUID -ne 0 || -z ${ROOT_DEVICE:-} ]]; then
+    printf '"tpm_unlock":null,"tpm_enrolled":null,"tpm_pcrs":null,"recovery_key":null,"passphrase":null'; return
+  fi
+  local pcrs
+  pcrs=$(cryptsetup luksDump --dump-json-metadata "$ROOT_DEVICE" |
+    jq -c '[.tokens[] | select(.type == "systemd-tpm2") | .["tpm2-pcrs"][]?] | unique | if . == [] then null else . end')
+  printf '"tpm_unlock":%s,"tpm_enrolled":%s,"tpm_pcrs":%s,"recovery_key":%s,"passphrase":%s' \
+    "$(json_bool tpm_unlocks)" "$(json_bool tpm_enrolled)" "$pcrs" \
+    "$(json_bool test -n "$(luks_token_slots systemd-recovery)")" "$(json_bool test -n "$(passphrase_slots)")"
+}

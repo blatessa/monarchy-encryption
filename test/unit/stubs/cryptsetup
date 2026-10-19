@@ -11,10 +11,13 @@ case $1 in
     printf '/dev/mapper/root is active and is in use.\n  type:    LUKS2\n  cipher:  aes-xts-plain64\n  device:  /dev/vda2\n' ;;
   luksUUID) [[ $2 == /dev/vda2 ]] && echo 8b81edbd-cf38-4664-82ab-17852814fdb0 ;;
   luksDump)   # --dump-json-metadata: keyslots and the tokens systemd-cryptenroll adds (none for a passphrase)
-    awk '{print $1, $2}' "$ks" | jq -Rn '[inputs | split(" ")] |
+    while read -r s t _; do echo "$s $t $(cat "$STUB_STATE/tpm2-pcrs-$s" 2>/dev/null | tr '+' ',')"; done <"$ks" |
+      jq -Rn '[inputs | split(" ")] |
       {keyslots: (map({key: .[0], value: {type: "luks2"}}) | from_entries),
        tokens: (map(select(.[1] != "password")) | to_entries |
-         map({key: (.key | tostring), value: {type: ("systemd-" + .value[1]), keyslots: [.value[0]]}}) | from_entries)}' ;;
+         map({key: (.key | tostring), value: ({type: ("systemd-" + .value[1]), keyslots: [.value[0]]} +
+           if .value[1] == "tpm2" then {"tpm2-pcrs": (.value[2] | split(",") | map(select(. != "") | tonumber))} else {} end)})
+         | from_entries)}' ;;
   open)   # open --test-passphrase --token-only --token-type systemd-tpm2 DEVICE: the TPM opens it
     if [[ " $* " == *" --token-only "* ]]; then
       [[ -z ${STUB_TPM_UNLOCK_FAIL:-} ]] && grep -q '^[0-9]* tpm2 -$' "$ks" || { echo "No usable token is available." >&2; exit 1; }

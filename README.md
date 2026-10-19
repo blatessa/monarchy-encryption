@@ -27,7 +27,7 @@ The standard answer (BitLocker does this on Windows) is:
 
 ```text
 monarchy-encryption setup [--json]          # Secure Boot, TPM unlock and a recovery key; runs twice (below)
-monarchy-encryption status [--json]
+monarchy-encryption status [--json]                # protected or not, and what's missing: docs/reference/status-output.md
 monarchy-encryption recovery-key [--json]   # create or replace; printed once for the caller to store
 monarchy-encryption reassert                # (not built yet) keep signing and boot config right after updates
 ```
@@ -85,6 +85,7 @@ It doesn't depend on monarchy-identity, and identity doesn't depend on it.
 ## Documents
 
 - [AGENTS.md](AGENTS.md): rules, scope and how to pick work.
+- [docs/reference/status-output.md](docs/reference/status-output.md): what `status` reports, for people and MDMs.
 - [docs/research.md](docs/research.md): what Omarchy already provides and the known traps.
 
 MIT, see [LICENSE](LICENSE).

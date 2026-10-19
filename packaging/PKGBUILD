@@ -26,5 +26,7 @@ package_monarchy-encryption() {
   install -Dm644 "$_root/data/zz-monarchy-encryption.conf" "$pkgdir/usr/share/monarchy-encryption/data/zz-monarchy-encryption.conf"
   # linked by setup into /etc/boot/hooks/post.d (Limine's hook directory)
   install -Dm755 "$_root/hooks/limine-fallback" "$pkgdir/usr/share/monarchy-encryption/hooks/limine-fallback"
+  install -Dm755 "$_root/hooks/limine-editor" "$pkgdir/usr/share/monarchy-encryption/hooks/limine-editor"
+  install -Dm644 "$_root/packaging/monarchy-encryption.hook" "$pkgdir/usr/share/libalpm/hooks/zz-monarchy-encryption.hook"
   install -Dm644 "$_root/LICENSE" "$pkgdir/usr/share/licenses/monarchy-encryption/LICENSE"
 }

@@ -20,11 +20,27 @@ Usage: monarchy-encryption <command>
   status [--json]    Show how the disk is unlocked and whether Secure Boot protects it
   recovery-key [--json]
                      Create or replace the recovery key; it is printed once, for you to store (root)
-  reassert           Keep signing and boot settings right after updates (root)
+  reassert           Put back boot settings and signatures an update undid; run by a pacman hook (root)
 EOF
 }
 
-not_implemented() { die "$1 is not implemented yet"; }
+# After updates (run by a pacman hook): put back what an update undid, with no key and no question: the systemd
+# initramfs, the boot menu settings and hooks, every boot file signed and protected. Keys and the TPM are left alone; a
+# TPM that no longer opens the disk is reported (it needs the recovery key: setup). Nothing to do before setup.
+cmd_reassert() {
+  [[ $# -eq 0 ]] || { usage >&2; exit 1; }
+  if [[ ! -f $SBCTL_DIR/keys/PK/PK.pem ]]; then
+    log "setup hasn't run on this laptop: nothing to keep right"; return 0
+  fi
+  CHANGED=0
+  initramfs_check
+  initramfs_apply
+  secureboot_maintain
+  if tpm_enrolled && ! tpm_unlocks; then
+    log "WARNING: the TPM no longer opens the disk (the firmware or its keys changed): the laptop will ask for the recovery key. Run setup with it."
+  fi
+  log "boot settings checked$( ((CHANGED)) && echo ": repaired and re-signed" )"
+}
 
 # Two runs, with a restart in between (Secure Boot only takes effect at the next start, and the TPM is bound to it):
 #   1. the systemd initramfs, Secure Boot with this laptop's keys, and a recovery key; then "restart, run setup again"
@@ -96,7 +112,7 @@ case "${1:-}" in
   setup) shift; need_root; cmd_setup "$@" ;;
   status) shift; cmd_status "$@" ;;
   recovery-key) shift; need_root; cmd_recovery_key "$@" ;;
-  reassert) need_root; not_implemented reassert ;;
+  reassert) shift; need_root; cmd_reassert "$@" ;;
   -h|--help|"") usage ;;
   *) usage >&2; exit 1 ;;
 esac

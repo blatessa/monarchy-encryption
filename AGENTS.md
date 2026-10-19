@@ -7,8 +7,8 @@ Guidance for coding agents (and humans) working in this repo. Keep it short and 
 protected by Secure Boot with the organisation's own keys, plus a per-laptop recovery key. It's a single-purpose
 utility like [monarchy-identity](https://github.com/blatessa/monarchy-identity): called by a person or an MDM, not a
 platform. Status (October 2026): `setup` (two runs) and `recovery-key` take a laptop to TPM unlock bound to Secure
-Boot, with a recovery key and no passphrase; staying correct across updates (#7) and `status --json` (#8) are next,
-and the lab's hibernation is unreliable (#21). Read
+Boot, with a recovery key and no passphrase, and `reassert` keeps it that way across updates; `status --json` (#8) is
+next, and the lab's hibernation is unreliable (#21). Read
 `docs/research.md` first, then `docs/dev/architecture.md` (decisions), `docs/dev/findings.md` (traps) and
 `docs/dev/testing.md` (the two test layers and the lab).
 

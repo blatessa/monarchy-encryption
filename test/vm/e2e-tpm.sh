@@ -14,15 +14,6 @@ setup_json() { root_with "$1" "monarchy-encryption setup --json 2>/dev/null" || 
 field() { jq -r ".$1 | tostring" <<<"$2" 2>/dev/null || true; }
 opens() { root_with "$1" "cryptsetup open --test-passphrase --disable-external-tokens --key-file=- /dev/vda2" >/dev/null 2>&1; }
 tpm_opens() { lab_ssh_root cryptsetup open --test-passphrase --token-only --token-type systemd-tpm2 /dev/vda2 >/dev/null 2>&1; }
-# up_untyped SECONDS: the VM answers ssh within SECONDS with nothing typed (the TPM opened the disk)
-up_untyped() { local start=$SECONDS; until lab_ssh true 2>/dev/null; do ((SECONDS - start < $1)) || return 1; sleep 2; done; }
-# restart_untyped: restart and let the TPM open the disk; 1 if it's still waiting at the prompt after 120 s
-restart_untyped() {
-  local old; old=$(lab_ssh cat /proc/sys/kernel/random/boot_id)
-  lab_ssh_root systemctl reboot >/dev/null 2>&1 || true
-  for _ in $(seq 60); do lab_ssh true 2>/dev/null || break; sleep 1; done
-  up_untyped 120 && [[ $(lab_ssh cat /proc/sys/kernel/random/boot_id) != "$old" ]]
-}
 cryptsetup_log() { lab_ssh_root journalctl -b -u systemd-cryptsetup@root -o cat; }
 
 "$VM/reset.sh"; "$VM/run.sh" >/dev/null; mkdir -p "$shots"

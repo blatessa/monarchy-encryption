@@ -103,8 +103,8 @@ be a root shell. Three things close it:
   signing them would break the hash limine-snapper-sync pinned (findings.md). `setup` says how many there are. They
   can still be restored from the running system, and every snapshot taken afterwards starts. Fleet laptops run
   `setup` right after the install, before there are any snapshots. Making old ones bootable again is #19.
-- `omarchy-refresh-limine` replaces `limine.conf` with Omarchy's default, so the editor comes back on. The checksum
-  stays correct because it runs `limine-update`. Putting `editor_enabled: no` back belongs to `reassert` (#7).
+- `omarchy-refresh-limine` replaces `limine.conf` with Omarchy's default, so the editor comes back on: handled by the
+  editor hook (below, "Staying correct across updates").
 - The firmware's own setup screen (F2, Del, or `S` in Limine's menu) can turn Secure Boot off unless it has a password.
   Software can't set one. With #5's policy, Secure Boot off means the TPM doesn't unlock the disk, so this isn't a way
   in, but a firmware password is still worth recommending.
@@ -171,3 +171,31 @@ slots are wiped and again after. Only keyslots with no token are wiped: the inst
 **A TPM slot that no longer matches** (a firmware update, or the keys changed) leaves the disk asking at boot. Running
 `setup` again with the recovery key enrolls the TPM afresh: the new slot is enrolled and proven first, then the stale
 one is removed. A new enrollment that doesn't open the disk is removed again.
+
+## Staying correct across updates
+
+**Decision:** two hooks, and a `reassert` command that needs no key. Issue #7, October 2026, Omarchy 4.0.5 in the lab.
+
+What can undo `setup` was found by trying it on a laptop that's fully set up (findings.md, "Updates after setup"):
+kernel updates and Omarchy's migrations stay correct on their own; a limine upgrade leaves Limine unsigned (Omarchy's
+`99-omarchy-limine` pacman hook); `omarchy-refresh-limine` brings the boot menu editor back.
+
+1. **A Limine post hook, `/etc/boot/hooks/post.d/85-monarchy-encryption-editor`**, linked by `setup` next to the
+   fallback hook. Limine's tools run it before their own `90-limine-enroll-config` whenever they rewrite the menu, so
+   the editor is locked *before* the checksum is enrolled. There is no moment when an enrolled menu has an editor,
+   and nothing has to notice the change afterwards.
+2. **A pacman hook, `zz-monarchy-encryption.hook`**, sorted after every Limine and Omarchy hook. It runs `reassert`
+   after transactions that touch the kernel, initramfs hooks, firmware, systemd, cryptsetup, Limine, mkinitcpio,
+   sbctl, Omarchy's packages or this one. Upgrading this package therefore also brings laptops set up by an older
+   version up to date (new hooks get linked).
+3. **`reassert`** runs `setup`'s parts that need no key and no question: the initramfs drop-in and crypttab line,
+   the menu settings, both Limine hooks, and a rebuild and re-sign when anything isn't signed and protected. It never
+   touches Secure Boot keys, keyslots or the TPM. A TPM that no longer opens the disk (a firmware update) is reported,
+   since re-enrolling needs the recovery key (`setup`). Before `setup` it does nothing.
+
+**No Omarchy post-update hook** (monarchy-identity has one). `omarchy update` installs packages through pacman, so the
+pacman hook runs, and its migrations rebuild through Limine's tools, so the editor hook runs. Nothing it does is left
+for a post-update hook to catch.
+
+**No watcher on the ESP.** A path unit or timer could catch changes made outside Limine's tools and pacman, but the
+project takes no such machinery, and the cases found all go through one of the two.

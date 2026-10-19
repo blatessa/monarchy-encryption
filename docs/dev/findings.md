@@ -148,3 +148,24 @@ Seen: lab VM (swtpm), Omarchy 4.0.5, systemd 262, sbctl 0.18, October 2026; issu
   certificates in `/var/lib/sbctl/keys/custom/db/` without setup mode (sbctl signs the update with the KEK).
 - **Secure Boot off, in the lab**: start the same variables, disk and TPM with `OVMF_CODE.4m.fd` (Arch's build
   without Secure Boot) instead of `OVMF_CODE.secboot.4m.fd`. PCR 7 changes, and switching back restores it.
+
+## Updates after setup
+
+Seen: lab VM, Omarchy 4.0.5, limine 12.9.3, limine-mkinitcpio-hook 1.40.0, October 2026; issue #7.
+
+- **A limine upgrade (or reinstall) leaves Limine unsigned.** pacman runs hooks in name order across
+  `/usr/share/libalpm/hooks` and `/etc/pacman.d/hooks`. Limine's `80-limine-efi-deploy` runs `limine-install`, which
+  enrolls the menu and signs Limine. Then Omarchy's `/etc/pacman.d/hooks/99-omarchy-limine.hook` copies the plain
+  `/usr/share/limine/BOOTX64.EFI` over `EFI/limine/limine_x64.efi`: unsigned, nothing enrolled. With Secure Boot on,
+  the firmware refuses its Limine entry and starts the next one: in the lab, the fallback `EFI/BOOT/BOOTX64.EFI`
+  (enrolled and signed thanks to our fallback hook), so it still started, with `BootCurrent` showing a different entry.
+  A firmware with no fallback entry wouldn't start. `zz-monarchy-encryption.hook` sorts after it and re-signs.
+- **`omarchy-refresh-limine` re-opens the boot menu editor**, correctly enrolled: it copies Omarchy's default
+  `limine.conf` (no `editor_enabled: no`) over ours and runs `limine-update`, which enrolls the new menu's checksum.
+  Everything is signed and the laptop starts with the TPM, but the menu can be edited again. Limine runs its post
+  hooks (`/etc/boot/hooks/post.d`) in name order, its own `90-limine-enroll-config` among them, so a hook named `85-`
+  can lock the menu before its checksum is enrolled.
+- **Kernel updates and Omarchy migrations stay correct** on their own. Every migration that rebuilds the boot image
+  goes through `limine-mkinitcpio` or `limine-update`, which sign through sbctl's hook. The ones in 4.0.5 edit only
+  `BOOT_ORDER` in `/etc/default/limine` and their own drop-ins, never our `ENABLE_ENROLL_LIMINE_CONFIG` line or
+  `zz-monarchy-encryption.conf`. No migration runs `omarchy-refresh-limine`.

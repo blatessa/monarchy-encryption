@@ -1,7 +1,8 @@
 # Secure Boot with this laptop's own keys, and a boot menu that can't be used to get around it. Sourced.
 # Why each piece is here: docs/dev/architecture.md, "Secure Boot".
 
-FALLBACK_HOOK="95-monarchy-encryption-fallback"   # sorts after Limine's 90-limine-enroll-config
+EDITOR_HOOK="85-monarchy-encryption-editor"       # sorts before Limine's 90-limine-enroll-config
+FALLBACK_HOOK="95-monarchy-encryption-fallback"   # sorts after it
 
 hex_of() { od -An -v -tx1 "$1" | tr -d ' \n'; }
 efi_flag() { # efi_flag NAME: true/false from a one-byte UEFI global variable (SecureBoot, SetupMode), "" if absent
@@ -57,14 +58,19 @@ config_protected() { # the Limine binary carries the checksum of the current lim
   [[ -n $h ]] && grep -aqF "$h" "$(limine_bin)" 2>/dev/null
 }
 
-# Limine's tools copy a plain Limine to the firmware's fallback path on every update. It has no enrolled checksum, so
-# choosing it in the firmware's boot menu would boot a changed limine.conf. Our hook replaces it with the enrolled one.
-install_fallback_hook() {
-  local link="$ETC/boot/hooks/post.d/$FALLBACK_HOOK"
-  [[ $(readlink "$link" 2>/dev/null) == "$ME_ROOT/hooks/limine-fallback" ]] && return 0
-  install -d -m 0755 "$ETC/boot/hooks/post.d"
-  ln -sfn "$ME_ROOT/hooks/limine-fallback" "$link"
-  CHANGED=1
+# Limine post hooks, run by Limine's tools on every update. The editor hook locks the editor again before the menu's
+# checksum is enrolled (omarchy-refresh-limine brings it back). Limine's tools copy a plain Limine to the firmware's
+# fallback path, which has no enrolled checksum, so choosing it in the firmware's boot menu would boot a changed
+# limine.conf: the fallback hook replaces it with the enrolled one.
+install_limine_hooks() {
+  local name src
+  for name in "$EDITOR_HOOK:limine-editor" "$FALLBACK_HOOK:limine-fallback"; do
+    src="$ME_ROOT/hooks/${name#*:}"
+    [[ $(readlink "$ETC/boot/hooks/post.d/${name%%:*}" 2>/dev/null) == "$src" ]] && continue
+    install -d -m 0755 "$ETC/boot/hooks/post.d"
+    ln -sfn "$src" "$ETC/boot/hooks/post.d/${name%%:*}"
+    CHANGED=1
+  done
 }
 fallback_protected() { cmp -s "$(limine_bin)" "$(fallback_bin)"; }
 
@@ -106,22 +112,28 @@ settings, reset or clear the Secure Boot keys so the firmware is in setup mode, 
   fi
 }
 
-# Everything is signed and checked before the keys go into the firmware: after that, nothing unsigned starts. The boot
-# files are rebuilt (which also builds the initramfs) only when something changed (CHANGED, set by setup's other parts
-# too) or isn't signed and protected yet, so running setup again changes nothing.
-secureboot_setup() {
-  local setup_mode; setup_mode=$(efi_flag SetupMode)
+# The boot menu settings and hooks, and every boot file signed and protected. The boot files are rebuilt (which also
+# builds the initramfs) only when something changed (CHANGED, set by the initramfs part too) or isn't signed and
+# protected, so running it again changes nothing. Needs this laptop's keys; enrolls nothing. setup and reassert.
+secureboot_maintain() {
   lock_editor
   enable_config_enroll
-  install_fallback_hook
+  install_limine_hooks
+  if ((${CHANGED:-0})) || [[ -n $(unsigned_boot_files) ]] || ! config_protected || ! fallback_protected; then
+    sign_boot_files
+    CHANGED=1
+  fi
+}
+
+# Everything is signed and checked before the keys go into the firmware: after that, nothing unsigned starts.
+secureboot_setup() {
+  local setup_mode; setup_mode=$(efi_flag SetupMode)
   if [[ ! -f $SBCTL_DIR/keys/PK/PK.pem ]]; then
     sbctl create-keys >/dev/null || die "creating this laptop's Secure Boot keys failed"
     log "created this laptop's Secure Boot keys"
     CHANGED=1
   fi
-  if ((${CHANGED:-0})) || [[ -n $(unsigned_boot_files) ]] || ! config_protected || ! fallback_protected; then
-    sign_boot_files
-  fi
+  secureboot_maintain
   warn_unbootable_snapshots
   if [[ $setup_mode == true ]]; then
     # Microsoft's keys stay alongside ours: graphics cards and other devices start firmware signed by Microsoft

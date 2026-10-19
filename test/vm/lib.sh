@@ -133,3 +133,13 @@ lab_reboot() {
   unlock_and_wait "$1" 300 "${2:-}"
   [[ $(lab_ssh cat /proc/sys/kernel/random/boot_id) != "$old" ]] || die "the VM didn't restart"
 }
+
+# up_untyped SECONDS: the VM answers ssh within SECONDS with nothing typed (the TPM opened the disk)
+up_untyped() { local start=$SECONDS; until lab_ssh true 2>/dev/null; do ((SECONDS - start < $1)) || return 1; sleep 2; done; }
+# restart_untyped: restart and let the TPM open the disk; 1 if it's still waiting at the prompt after 120 s
+restart_untyped() {
+  local old; old=$(lab_ssh cat /proc/sys/kernel/random/boot_id)
+  lab_ssh_root systemctl reboot >/dev/null 2>&1 || true
+  for _ in $(seq 60); do lab_ssh true 2>/dev/null || break; sleep 1; done
+  up_untyped 120 && [[ $(lab_ssh cat /proc/sys/kernel/random/boot_id) != "$old" ]]
+}

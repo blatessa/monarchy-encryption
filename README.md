@@ -5,7 +5,7 @@ the TPM unlock the encrypted disk at boot, protected by Secure Boot, with a reco
 screen becomes the place people prove who they are.
 
 > **Status: in progress, not ready for use.** `setup` takes a laptop to TPM unlock with Secure Boot and a recovery
-> key, tested in a virtual machine only. Staying correct across Omarchy updates (`reassert`) isn't built yet. Work is
+> key, and it stays that way through kernel, Limine and Omarchy updates. Tested in a virtual machine only. Work is
 > tracked in [issues](https://github.com/blatessa/monarchy-encryption/issues); start with [AGENTS.md](AGENTS.md).
 
 ## Why
@@ -29,7 +29,7 @@ The standard answer (BitLocker does this on Windows) is:
 monarchy-encryption setup [--json]          # Secure Boot, TPM unlock and a recovery key; runs twice (below)
 monarchy-encryption status [--json]
 monarchy-encryption recovery-key [--json]   # create or replace; printed once for the caller to store
-monarchy-encryption reassert                # (not built yet) keep signing and boot config right after updates
+monarchy-encryption reassert                # put back boot settings and signatures an update undid (run by pacman)
 ```
 
 It's called by a person or by an MDM, the same way `monarchy-identity enroll` is.

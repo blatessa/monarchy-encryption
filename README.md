@@ -30,6 +30,7 @@ monarchy-encryption setup [--json]          # Secure Boot, TPM unlock and a reco
 monarchy-encryption status [--json]                # protected or not, and what's missing: docs/reference/status-output.md
 monarchy-encryption recovery-key [--json]   # create or replace; printed once for the caller to store
 monarchy-encryption reassert                # put back boot settings and signatures an update undid (run by pacman)
+monarchy-encryption release                 # undo setup: a passphrase again, Secure Boot handed back
 ```
 
 It's called by a person or by an MDM, the same way `monarchy-identity enroll` is.
@@ -88,6 +89,21 @@ and the old one stops working. Once the TPM unlocks the disk, no passphrase is n
 
 When the laptop can't unlock its disk by itself (after a firmware update or a repair, say), type the recovery key at
 the disk prompt in place of the passphrase, dashes included.
+
+## Giving a laptop back, or factory resetting it
+
+```bash
+sudo monarchy-encryption release   # asks for a new disk passphrase
+```
+
+`release` undoes `setup`: the disk unlocks with the new passphrase again, and the firmware's Secure Boot keys are
+handed back (Secure Boot is off from the next start). The disk stays encrypted. An MDM gives the new passphrase on
+stdin; if the laptop can't unlock itself any more (after a firmware update, say), give the recovery key as a second
+line.
+
+To factory reset the laptop, run `release` first, then Omarchy's reset (`omarchy-system-factory-reset`), which asks
+for the passphrase you just set. Without `release`, the reset leaves boot files the firmware refuses to start. Once
+first-boot setup has run, `setup` sets the laptop up again.
 
 ## What it won't do
 

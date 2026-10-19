@@ -203,8 +203,8 @@ project takes no such machinery, and the cases found all go through one of the t
 ## Provisioning and factory reset
 
 **Decision:** fleet laptops come from a **full unattended install**, not Omarchy's deferred provisioning, until Omarchy
-offers the hooks below. `setup` refuses while provisioning is pending (#30). A factory reset starts by handing the
-firmware back (#31). Issue #9 (design only), October 2026, Omarchy 4.0.5; evidence in findings.md, "Omarchy's
+offers the hooks below. `setup` refuses while provisioning is pending (#30). A factory reset starts with `release`
+(#31). Issue #9 (design only), October 2026, Omarchy 4.0.5; evidence in findings.md, "Omarchy's
 provisioning and factory reset".
 
 **The flow that works today** (README, "Setting up a laptop"):
@@ -233,20 +233,30 @@ the MDM, never the disk. What would make it work is upstream (#32): a systemd-co
 `/etc/crypttab`, or `rd.luks.key=`), a re-key that removes only the slot it staged, and a hook after user creation
 where `setup` and `monarchy-identity enroll` run with the staged key file as their secret.
 
-**Factory reset.** `omarchy-system-factory-reset` rebuilds the boot files from the install-time `@factory` snapshot,
-which has none of this laptop's keys, so they come out unsigned and, with the laptop's keys in the firmware, it
-doesn't start. Signing them inside the reset would put this laptop's private key into the snapshot handed to the
-next owner. Rejected. Instead, the reset gives the firmware back first: `sbctl reset` removes the platform key from
-the running laptop (tested), the firmware returns to setup mode, and the reset's boot files should then start with Secure Boot
-off (the full reset is #31's to test). The keyslots need no step of ours: the reset adds its throwaway key (the recovery key answers its passphrase
-question) and provisioning's re-key removes the rest. After the reset, `setup` starts over. A pre-reset hook upstream
-(#32) would make the hand-back automatic.
+**Factory reset: `release` first.** `omarchy-system-factory-reset` rebuilds the boot files from the install-time
+`@factory` snapshot, which has none of this laptop's keys, so they come out unsigned and, with the laptop's keys in the
+firmware, it doesn't start. It also asks for the disk passphrase, which `setup` removed. Signing inside the reset
+would put this laptop's private key into the snapshot handed to the next owner (rejected), and wrapping Omarchy's
+reset in a command of ours was rejected by the owner as more machinery than it's worth. Instead, `release` (#31) turns
+the laptop back into a plain Omarchy one, and the admin then uses Omarchy's own reset:
+
+1. Ask for a new disk passphrase (twice on a terminal, or one line on stdin) and add it, unlocked by the TPM
+   (`cryptsetup luksAddKey --token-only --token-type systemd-tpm2`, the new key through a pipe), or by the recovery
+   key when the TPM no longer opens the disk. Skipped when the disk still has a passphrase.
+2. Prove it opens the disk, then remove the TPM slot. The recovery key stays (the reset's re-key removes it).
+3. `sbctl reset`: the firmware is in setup mode, Secure Boot off from the next start. Remove this laptop's sbctl keys.
+4. Unlink our Limine hooks; `reassert` finds no keys and does nothing.
+
+The systemd initramfs, the crypttab line and the menu settings stay: they work with a passphrase, and a reset
+replaces them anyway. `setup` sets a released laptop up again (the firmware is already in setup mode). It is also how
+a laptop leaves management without a reset. In the lab (`test/vm/e2e-release.sh`): release, restart with the new
+passphrase, Omarchy's reset (it takes the new passphrase), first-boot setup, then `setup` back to protected.
 
 **Failure modes, and what each leaves:**
 
 - `setup` run while provisioning is pending: a disk that asks for a passphrase nobody knows; the recovery key opens
   it. Prevented by #30.
-- Factory reset without the hand-back: a laptop the firmware won't start. Fix: clear Secure Boot keys (or turn Secure
+- Factory reset without `release`: a laptop the firmware won't start. Fix: clear Secure Boot keys (or turn Secure
   Boot off) in the firmware settings; it then starts with the reset's unsigned files.
-- Provisioning's re-key on a set-up laptop (a reset after the hand-back, as designed): the TPM and recovery slots are
-  gone and the owner's password opens the disk. Expected; `setup` takes it back.
+- Provisioning's re-key after `release` and a reset (as designed): the recovery slot is gone and the owner's password
+  opens the disk. Expected; `setup` takes it back.

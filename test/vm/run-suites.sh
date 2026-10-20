@@ -42,7 +42,7 @@ fail=0
 for s in "${suites[@]}"; do
   read -r name verdict took < <(cat "$logs/$s.result" 2>/dev/null || echo "$s FAIL ?")
   printf '  %-4s %-14s %6s  %s\n' "$verdict" "$name" "$took" "$logs/$s.log"
-  [[ $verdict == PASS ]] || { fail=1; grep -h '  FAIL' "$logs/$s.log" | sed 's/^/        /'; }
+  [[ $verdict == PASS ]] || { fail=1; { grep -h '  FAIL' "$logs/$s.log" || tail -n 3 "$logs/$s.log"; } | sed 's/^/        /'; }
 done
 log "done in $((SECONDS - start))s"
 ((fail)) && { echo "RESULT: FAIL"; exit 1; }; echo "RESULT: ALL PASS"

@@ -85,7 +85,10 @@ image's hash and its command line, so PCR 4 covers the command line too. PCR 11 
 | 0-3 | The firmware itself: every firmware update would need the recovery key. |
 
 **What it doesn't catch.** Root on the laptop can approve different boot files (that's how updates work), as before.
-Another operating system, a live USB, a different Limine or boot image, or a changed menu don't get the key.
+Another operating system, a live USB, a different Limine or boot image, or a changed menu don't get the key. The boot
+service approves whatever started, so if someone types the recovery key at a start from boot files someone else put on
+the ESP, those files are approved until the next start from the real ones; the recovery key is meant for IT, which
+should check why it was asked for first.
 
 **The policy follows updates through Limine's tools.** Every rebuild (a kernel update, a snapshot, which changes the
 menu and so Limine, `omarchy-refresh-limine`) runs Limine's post hooks. `96-monarchy-encryption-policy`, after the
@@ -106,8 +109,10 @@ the hooks with `ProtectHome=yes`.
 that pcrlock recognises everything the firmware measured into PCR 4 and 11 at this start (`predict --strict` with the
 files on the ESP). A stock laptop starts with the busybox initramfs, which measures nothing, so systemd's own
 initramfs components (`750-enter-initrd`, `750-os-separator`) are left out when the first try fails: a match without
-them means they are absent, not unrecognised. Firmware that measures something pcrlock doesn't know is refused, not
-left asking for the recovery key at every start.
+them means they are absent, not unrecognised. When the boot files changed since this start (an update, Omarchy's
+first-boot setup), they can't describe it: then every record in PCR 4 and 11 must be a component pcrlock knows, a
+program the firmware started, or a boot image section (`pcrlock log --json`), which the files describe at the restart.
+Firmware that measures something else is refused, not left asking for the recovery key at every start.
 
 **The boot menu.** With the TPM unlocking the disk, changing the kernel command line at the menu (`init=/bin/sh`) would
 be a root shell. Three things close it:

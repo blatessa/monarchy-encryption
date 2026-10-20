@@ -31,7 +31,7 @@ sandbox() {
   export MONARCHY_ENCRYPTION_RUN="$T/run/monarchy-encryption" MONARCHY_ENCRYPTION_PCRLOCK_LIB="$T/usr/lib/pcrlock.d"
   export STUB_STATE="$T/state" STUB_LOG="$T/calls.log" PATH="$STUBS:$PATH"
   unset STUB_ENROLL_FAIL STUB_LIMINE_UPDATE_FAIL STUB_NOT_LUKS STUB_ROOT_SOURCE STUB_TPM_UNLOCK_FAIL STUB_WIPE_FAIL \
-    STUB_RECOVERY_KEY_BROKEN STUB_KEY_UNREADABLE STUB_PCRLOCK_UNPREDICTABLE STUB_PCRLOCK_UNSUPPORTED
+    STUB_RECOVERY_KEY_BROKEN STUB_KEY_UNREADABLE STUB_PCRLOCK_UNPREDICTABLE STUB_PCRLOCK_UNSUPPORTED STUB_PCRLOCK_ESP_CHANGED
   mkdir -p "$T/etc/default" "$T/etc/boot/hooks/post.d" "$T/state" "$T/home" "$T/efivars" \
     "$T/boot/EFI/limine" "$T/boot/EFI/BOOT" "$T/boot/EFI/Linux"
   cp "$FIX/boot/limine.conf" "$T/boot/"; cp "$FIX/etc/default/limine" "$T/etc/default/"

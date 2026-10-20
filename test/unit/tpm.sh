@@ -95,8 +95,11 @@ called "limine-update" && bad "boot files rebuilt anyway" || ok "the boot files 
 me_in "" setup
 [[ $RC -eq 1 && $ERR == *"give it on stdin"* && $(snap) == "$BEFORE" ]] && ok "no passphrase: says how to give it, nothing changed" || bad "no stdin: rc $RC: $ERR"
 STUB_PCRLOCK_UNPREDICTABLE=1 me_in "$DISK_PASSPHRASE" setup
-[[ $RC -eq 1 && $ERR == *"record of this start doesn't match"*"restart it"* && $(snap) == "$BEFORE" && $(slots) == "0 password" ]] \
+[[ $RC -eq 1 && $ERR == *"firmware records something"*"Nothing was changed"* && $(snap) == "$BEFORE" && $(slots) == "0 password" ]] \
   && ok "the firmware's measurements can't be predicted: refused up front, nothing changed" || bad "unpredictable: rc $RC: $ERR"
+STUB_PCRLOCK_ESP_CHANGED=1 me_in "$DISK_PASSPHRASE" setup --json
+[[ $RC -eq 0 && $(js .done) == false ]] && ok "boot files changed since this start (an update): the firmware's record is still recognised, setup goes ahead" || bad "esp changed: rc $RC: $ERR"
+sandbox; touch "$T/tpmrm0"; BEFORE=$(snap)
 STUB_PCRLOCK_UNSUPPORTED=1 me_in "$DISK_PASSPHRASE" setup
 [[ $RC -eq 1 && $ERR == *"can't hold the boot policy"* && $(snap) == "$BEFORE" ]] && ok "a TPM without PolicyAuthorizeNV: refused, nothing changed" || bad "unsupported: rc $RC: $ERR"
 rm "$T/tpmrm0"

@@ -114,8 +114,18 @@ pcrlock_predictable() {
     done
   fi
   rm -rf "$d"
-  ((ok)) || die "the firmware's record of this start doesn't match the boot files on the disk, so the TPM can't be tied \
-to them. If the laptop was updated since it started, restart it and run setup again. Nothing was changed."
+  ((ok)) || pcrlock_log_recognised || die "this laptop's firmware records something at start that the TPM can't be tied to, so the laptop would \
+ask for the recovery key at every start. Nothing was changed."
+}
+
+# The boot files changed since this start (an update, Omarchy's first-boot setup), so they can't describe it: every
+# measurement in the policy's PCRs is then one pcrlock knows, or a program the firmware started (PCR 4) or a boot
+# image's section (PCR 11), which the files on the ESP describe at the restart.
+pcrlock_log_recognised() {
+  local pcrs; pcrs=$(printf '%s,' "${POLICY_PCRS[@]}")
+  "$PCRLOCK" log --no-pager --json=short 2>/dev/null | jq -e --argjson p "[${pcrs%,}]" '
+    [.log[] | select(.pcr as $r | $p | index($r)) | select(.component == null)
+      | select(.event != "efi-boot-services-application" and .event != "ipl")] | length == 0' >/dev/null
 }
 
 # --- status -------------------------------------------------------------------------------------------------------

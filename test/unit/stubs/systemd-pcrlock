@@ -6,6 +6,8 @@
 # firmware measured something pcrlock doesn't recognise (strict: no policy). STUB_PCRLOCK_UNSUPPORTED=1: the TPM lacks
 # PolicyAuthorizeNV. predict, as at a start with the busybox initramfs ($STUB_STATE/systemd-initrd absent: a stock
 # install), fails with systemd's initramfs components among the --components (nothing measured them).
+# STUB_PCRLOCK_ESP_CHANGED=1: the boot files changed since this start, so predict fails, but log shows only
+# measurements pcrlock knows (programs the firmware started, boot image sections).
 echo "systemd-pcrlock $*" >> "$STUB_LOG"
 cmd=$1; shift
 out="" policy=/var/lib/systemd/pcrlock.json file="" pcrs=() components=()
@@ -26,7 +28,7 @@ case $cmd in
     [[ -f $file && -n $out ]] || { echo "Failed to open '$file'" >&2; exit 1; }
     mkdir -p "$(dirname "$out")"; echo "${cmd#lock-} $(sha256sum <"$file" | cut -d' ' -f1)" > "$out" ;;
   predict)
-    [[ -z ${STUB_PCRLOCK_UNPREDICTABLE:-} ]] || unpredictable
+    [[ -z ${STUB_PCRLOCK_UNPREDICTABLE:-} && -z ${STUB_PCRLOCK_ESP_CHANGED:-} ]] || unpredictable
     if [[ ! -e $STUB_STATE/systemd-initrd ]] && ls "${components[@]}" 2>/dev/null | grep -q '^750-enter-initrd'; then
       echo "Couldn't find component '750-enter-initrd' in event log." >&2; unpredictable
     fi
@@ -42,6 +44,9 @@ case $cmd in
     printf '%s\n' "${pcrs[@]}" | jq -cRn '{nvIndex: 27030477, pcrBank: "sha256", pcrValues: [inputs | {pcr: tonumber, values: ["…"]}]}' > "$policy"
     cat "$MONARCHY_ENCRYPTION_PCRLOCK_DIR"/*.pcrlock.d/*.pcrlock 2>/dev/null | sort -u > "$STUB_STATE/policy-covers"
     echo "Written new policy to '$policy' and digest to TPM2 NV index 0x19c73cd." ;;
+  log)
+    extra=""; [[ -z ${STUB_PCRLOCK_UNPREDICTABLE:-} ]] || extra=',{"pcr":4,"event":"efi-action","component":null,"description":"Action: something else"}'
+    printf '{"log":[{"pcr":4,"event":"separator","component":"500-separator"},{"pcr":4,"event":"efi-boot-services-application","component":null},{"pcr":11,"event":"ipl","component":null},{"pcr":7,"event":"efi-variable-authority","component":null}%s]}\n' "$extra" ;;
   remove-policy) rm -f "$policy" "$STUB_STATE/nv-pin" "$STUB_STATE/policy-covers"; echo "Removed policy file '$policy'." ;;
   *) echo "stub: unknown command $cmd" >&2; exit 1 ;;
 esac

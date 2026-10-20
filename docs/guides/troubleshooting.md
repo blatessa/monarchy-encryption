@@ -10,7 +10,7 @@ Every refusal happens before anything is changed, unless it says otherwise. Mess
 | "this laptop didn't start in UEFI mode" | Turn off legacy/CSM boot in the firmware settings. Omarchy installs for UEFI; a laptop that started otherwise can't have its boot measured. |
 | "this laptop has no TPM 2.0" | Turn the TPM on in the firmware settings (PTT on Intel, fTPM on AMD). |
 | "this laptop's TPM can't hold the boot policy" | The TPM is too old (before revision 1.38). A firmware update sometimes brings a newer one; otherwise this laptop can't use TPM unlock. |
-| "the firmware's record of this start doesn't match the boot files on the disk" | Usually an update since the laptop started: restart, then run `setup` again. If it persists, this firmware measures something the TPM policy can't describe: open an issue with the output of `sudo /usr/lib/systemd/systemd-pcrlock log`. |
+| "this laptop's firmware records something at start that the TPM can't be tied to" | This firmware measures something the TPM policy can't describe, so TPM unlock can't work on it yet. Open an issue with the output of `sudo /usr/lib/systemd/systemd-pcrlock log`. |
 | "Omarchy's first-boot setup hasn't finished" | Start the laptop and finish Omarchy's first-boot setup (create the user), then run `setup`. |
 | "this needs the disk's recovery key or passphrase" | Give it on a terminal when asked, or as one line on standard input. |
 | "that recovery key or passphrase doesn't open the disk" | Check it and try again. Type a recovery key exactly as it was printed, dashes included. |

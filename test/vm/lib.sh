@@ -2,12 +2,14 @@
 # The lab is an encrypted Omarchy install under QEMU with Secure Boot firmware (in setup mode: no keys yet) and a
 # software TPM. `images/base/` is the clean install and never changes after test/vm/install.sh; `images/lab/` is the
 # working copy (a disk overlay plus its own copies of the firmware variables and TPM state), which reset.sh recreates.
+# LAB_NAME and LAB_SSH_PORT give a VM of its own (images/$LAB_NAME), so suites can run side by side (run-suites.sh).
 set -euo pipefail
 
 VM="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGES="$VM/images"
 BASE="$IMAGES/base"
-LAB="$IMAGES/lab"
+LAB_NAME="${LAB_NAME:-lab}"
+LAB="$IMAGES/$LAB_NAME"
 KEY="$VM/keys/id_lab"
 ISO_VERSION="${LAB_ISO_VERSION:-4.0.5}"
 ISO="$IMAGES/omarchy-$ISO_VERSION.iso"
@@ -76,7 +78,7 @@ start_vm() {
   local serial=(-serial none)
   [[ -n ${LAB_SERIAL:-} ]] && serial=(-serial "file:$dir/serial.log")
   qemu-system-x86_64 \
-    -name monarchy-lab -cpu host -enable-kvm -machine q35,smm=on,accel=kvm -smp 4 -m "$MEMORY" \
+    -name "monarchy-$LAB_NAME" -cpu host -enable-kvm -machine q35,smm=on,accel=kvm -smp 4 -m "$MEMORY" \
     -global driver=cfi.pflash01,property=secure,value=on -global ICH9-LPC.disable_s3=1 \
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
     -drive if=pflash,format=raw,file="$dir/vars.fd" \
@@ -159,8 +161,8 @@ checkpoint_unlock() {
   start_vm "$LAB"
   if [[ $1 == tpm ]]; then up_untyped 180 || die "the VM didn't start with nothing typed"; else unlock_and_wait "$LAB" 300 "$1"; fi
 }
-# checkpoint_save NAME UNLOCK [ID]: save the running lab VM as NAME (shut down cleanly, copied, started again), with
-# the variables named in CHECKPOINT_VARS
+# checkpoint_save NAME UNLOCK [ID [nostart]]: save the running lab VM as NAME (shut down cleanly, copied, started again
+# unless nostart), with the variables named in CHECKPOINT_VARS
 checkpoint_save() {
   local dir="$CHECKPOINTS/$1"
   stop_vm "$LAB"; rm -rf "$dir"; mkdir -p "$dir"
@@ -168,35 +170,46 @@ checkpoint_save() {
   : > "$dir/vars"; ((${#CHECKPOINT_VARS[@]})) && declare -p "${CHECKPOINT_VARS[@]}" | sed 's/^declare /declare -g /' > "$dir/vars"
   echo "$2" > "$dir/unlock"; echo "${3:-manual}" > "$dir/id"
   log "saved checkpoint $1"
-  checkpoint_unlock "$2"
+  [[ ${4:-} == nostart ]] || checkpoint_unlock "$2"
 }
-# checkpoint_restore NAME: the lab VM back in state NAME, running, its variables set
-checkpoint_restore() {
+# checkpoint_copy NAME: the lab VM's files (stopped) and variables set to checkpoint NAME's
+checkpoint_copy() {
   local dir="$CHECKPOINTS/$1"
   [[ -f $dir/disk.qcow2 ]] || die "no checkpoint $1"
   stop_vm "$LAB"; rm -rf "$LAB"; mkdir -p "$LAB"
   cp --reflink=auto "$dir/disk.qcow2" "$dir/vars.fd" "$LAB/"; cp -r --reflink=auto "$dir/tpm" "$LAB/tpm"
   source "$dir/vars"
-  checkpoint_unlock "$(<"$dir/unlock")"
-  log "restored checkpoint $1"
 }
+# checkpoint_restore NAME: the lab VM back in state NAME, running, its variables set
+checkpoint_restore() { checkpoint_copy "$1"; checkpoint_unlock "$(<"$CHECKPOINTS/$1/unlock")"; log "restored checkpoint $1"; }
 # checkpoint NAME BUILD: leave the lab VM running in state NAME. BUILD (a function) gets there from anything (a clean
 # install, or another checkpoint) and sets CHECKPOINT_UNLOCK and the variables named in CHECKPOINT_VARS. Restored
-# instead of built while the package and BUILD are what they were when it was saved.
+# instead of built while the package and BUILD are what they were when it was saved. Suites running side by side
+# take turns: the first builds it, the others wait and restore it.
 checkpoint() {
-  local id; id=$( { package_hash; declare -f "$2"; } | sha256sum | cut -c1-16)
-  if [[ -f $CHECKPOINTS/$1/id && $(<"$CHECKPOINTS/$1/id") == "$id" ]]; then checkpoint_restore "$1"; return; fi
+  local id fd; id=$( { package_hash; declare -f "$2"; } | sha256sum | cut -c1-16)
+  mkdir -p "$CHECKPOINTS"; exec {fd}>"$CHECKPOINTS/$1.lock"; flock "$fd"
+  if [[ -f $CHECKPOINTS/$1/id && $(<"$CHECKPOINTS/$1/id") == "$id" ]]; then
+    checkpoint_copy "$1"; exec {fd}>&-; checkpoint_unlock "$(<"$CHECKPOINTS/$1/unlock")"; log "restored checkpoint $1"; return
+  fi
   log "building checkpoint $1"
   CHECKPOINT_VARS=() CHECKPOINT_UNLOCK=""
   "$2"
-  checkpoint_save "$1" "$CHECKPOINT_UNLOCK" "$id"
+  checkpoint_save "$1" "$CHECKPOINT_UNLOCK" "$id" nostart; exec {fd}>&-
+  checkpoint_unlock "$CHECKPOINT_UNLOCK"
+}
+
+# Where most suites start: a clean install with this checkout's package installed.
+build_installed() {
+  "$VM/reset.sh"; "$VM/run.sh" >/dev/null
+  "$VM/install-package.sh"
+  CHECKPOINT_UNLOCK=$LAB_PASSWORD
 }
 
 # The precondition most suites after setup want: a clean install set up by this checkout's package through both runs
 # of setup (TPM unlock, no passphrase). Sets RECOVERY_KEY.
 build_set_up() {
-  "$VM/reset.sh"; "$VM/run.sh" >/dev/null
-  "$VM/install-package.sh"
+  checkpoint installed build_installed
   RECOVERY_KEY=$(root_with "$LAB_PASSWORD" "monarchy-encryption setup --json 2>/dev/null" | jq -r .recovery_key)
   lab_reboot "$LAB"
   [[ $(root_with "$RECOVERY_KEY" "monarchy-encryption setup --json 2>/dev/null" | jq -r .done) == true ]] || die "setup didn't finish"

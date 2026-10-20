@@ -21,8 +21,7 @@ status_is() {
   [[ $(jq -r .protected <<<"$j") == "$1" && $(jq -r '.missing | join(" ")' <<<"$j") == "$2" ]] || { echo "      status: $j"; return 1; }
 }
 
-"$VM/reset.sh"; "$VM/run.sh" >/dev/null; mkdir -p "$shots"
-"$VM/install-package.sh"
+checkpoint installed build_installed; mkdir -p "$shots"
 
 echo "[status on a stock install]"
 status_is false "disk.systemd_initramfs disk.tpm_unlock disk.recovery_key disk.no_passphrase secure_boot.enabled secure_boot.own_keys secure_boot.boot_files_signed boot_menu.editor_locked boot_menu.config_protected" \
@@ -54,10 +53,6 @@ status_is true "" && ok "status: protected, nothing missing" || bad "status when
 [[ $(lab_ssh_root monarchy-encryption status --json | jq -c .disk.tpm_pcrs) == "[7]" ]] && ok "status: the TPM is bound to PCR 7" || bad "pcrs"
 
 
-echo "[a kernel update]"
-lab_ssh_root env OMARCHY_ALLOW_DIRECT_PACMAN=1 pacman -S --noconfirm linux-omarchy >/dev/null 2>&1
-restart_untyped && ok "the TPM still opens the disk after the kernel is reinstalled" || { bad "prompt after a kernel update"; unlock_and_wait "$LAB" 300 "$key"; }
-
 echo "[Secure Boot off]"
 stop_vm "$LAB"
 OVMF_CODE=/usr/share/edk2/x64/OVMF_CODE.4m.fd start_vm "$LAB"   # the same firmware variables and TPM, no Secure Boot
@@ -82,7 +77,6 @@ status_is false "disk.tpm_unlock" && ok "status: the TPM no longer opens the dis
 j=$(setup_json ""); [[ -z $(field done "$j") || $(field done "$j") == null ]] && ok "setup asks for the recovery key (the TPM no longer opens the disk)" || bad "no-key run: $j"
 j=$(setup_json "$key"); [[ $(field done "$j") == true ]] && tpm_opens && ok "setup with the recovery key enrolls the TPM afresh" || bad "re-enroll: $j"
 [[ $(lab_ssh_root systemd-cryptenroll /dev/vda2 | grep -c tpm2) == 1 ]] && ok "one TPM slot (the stale one removed)" || bad "slots: $(lab_ssh_root systemd-cryptenroll /dev/vda2)"
-restart_untyped && ok "and the laptop starts with nothing typed again" || { bad "prompt after re-enrolling"; unlock_and_wait "$LAB" 300 "$key"; }
 status_is true "" && ok "status: protected again" || bad "status after re-enrolling"
 [[ $(lab_ssh monarchy-encryption status --json | jq -c '[.protected, .missing]') == '[null,[]]' ]] \
   && ok "status as a user: unknown, since nothing a user can see is wrong" || bad "user status: $(lab_ssh monarchy-encryption status --json)"

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Lab: recovery-key on a laptop after setup's first run. The key opens the real disk and starts the laptop when typed at the disk
-# prompt; after it's replaced, the old one opens nothing; the key is written nowhere on the laptop. Resets the lab
-# first. About 6 minutes.
+# prompt; after it's replaced, the old one opens nothing; the key is written nowhere on the laptop. Starts from
+# the installed checkpoint. About 6 minutes.
 source "$(dirname "$0")/lib.sh"
 fail=0
 ok()  { printf '  PASS %s\n' "$1"; }
@@ -18,8 +18,7 @@ nowhere() {
   ! root_with "$1" "bash -c 'IFS= read -r k || true; journalctl -o cat | grep -qF -- \"\$k\" || grep -rqsF -- \"\$k\" /etc /root /home /var/log /tmp /boot'"
 }
 
-"$VM/reset.sh"; "$VM/run.sh" >/dev/null
-"$VM/install-package.sh"
+checkpoint installed build_installed
 root_with "$LAB_PASSWORD" "monarchy-encryption setup" >/dev/null 2>&1 || bad "setup failed"
 lab_reboot "$LAB"   # Secure Boot on, the menu editor locked: the recovery key's letters can't open it
 

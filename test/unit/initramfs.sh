@@ -61,8 +61,12 @@ me status --json; [[ $(js .disk.encrypted) == true ]] && ok "status: encrypted" 
 sandbox; echo "root  /dev/vda2  /etc/keyfile  luks" >> "$T/etc/crypttab"; BEFORE=$(snap); me setup
 [[ $RC -ne 0 && $OUT == *"describes the disk 'root' differently"* && $(snap) == "$BEFORE" ]] && ok "crypttab already says something else about the disk: refused, nothing changed" || bad "conflict: rc $RC: $OUT"
 
-sandbox; efivar SetupMode 0; { printf '\x27\x00\x00\x00'; echo "someone else's key"; } > "$T/efivars/PK-$G"; BEFORE=$(snap); me setup
-[[ $RC -ne 0 && $(snap) == "$BEFORE" ]] && ok "someone else's Secure Boot keys: the initramfs is left alone too" || bad "foreign keys changed the initramfs"
+sandbox; BEFORE=$(snap); STUB_PCRLOCK_UNPREDICTABLE=1 me setup
+[[ $RC -ne 0 && $(snap) == "$BEFORE" ]] && ok "the firmware's measurements can't be predicted: the initramfs is left alone too" || bad "unpredictable changed the initramfs"
+
+echo "[the manufacturer's Secure Boot keys, Secure Boot off (how Omarchy laptops come)]"
+sandbox; { printf '\x27\x00\x00\x00'; echo "MSI SHIP PK"; } > "$T/efivars/PK-$G"; me setup
+[[ $RC -eq 0 && $(tail -c 12 "$T/efivars/PK-$G") == "MSI SHIP PK" ]] && ok "set up with nothing done in the firmware; its keys left as they are" || bad "factory keys: rc $RC: $OUT"
 
 echo "[an existing line that says the same]"
 sandbox; echo "root  UUID=8b81edbd-cf38-4664-82ab-17852814fdb0  none  luks,x-initrd.attach,discard" >> "$T/etc/crypttab"; me setup

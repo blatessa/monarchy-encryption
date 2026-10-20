@@ -1,12 +1,13 @@
 #!/bin/bash
-# monarchy-encryption: the TPM unlocks the disk at boot, protected by Secure Boot, with a recovery key for IT.
+# monarchy-encryption: the TPM unlocks the disk at boot, for this laptop's own boot files, with a recovery key for IT.
 set -euo pipefail
 
 ROOT="${MONARCHY_ENCRYPTION_ROOT:-/usr/share/monarchy-encryption}"
 [[ -f $ROOT/lib/common.sh ]] || ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 export ME_ROOT="$ROOT"
 source "$ROOT/lib/common.sh"
-source "$ROOT/lib/secureboot.sh"
+source "$ROOT/lib/boot.sh"
+source "$ROOT/lib/pcrlock.sh"
 source "$ROOT/lib/initramfs.sh"
 source "$ROOT/lib/recoverykey.sh"
 source "$ROOT/lib/tpm.sh"
@@ -16,24 +17,26 @@ usage() {
   cat <<EOF
 Usage: monarchy-encryption <command>
 
-  setup [--json]     Unlock the disk with the TPM at boot, protected by Secure Boot, and create a recovery key (root).
-                     Then restart: the laptop finishes by itself as it starts, with nothing to type
-  status [--json]    Show how the disk is unlocked and whether Secure Boot protects it
+  setup [--json]     Unlock the disk with the TPM at boot, for this laptop's own boot files, and create a recovery key
+                     (root). Then restart: the laptop finishes by itself as it starts, with nothing to type
+  status [--json]    Show how the disk is unlocked and whether it's protected
   recovery-key [--json]
                      Create or replace the recovery key; it is printed once, for you to store (root)
-  reassert           Put back boot settings and signatures an update undid; run by a pacman hook (root)
-  finish             Finish setup at the restart after it; run by a service at that start (root)
-  release            Undo setup: the disk opens with a new passphrase, Secure Boot is handed back (root).
+  reassert           Put back boot settings an update undid; run by a pacman hook (root)
+  boot               Tell the TPM which boot files started, and finish setup at the restart after it; run by a
+                     service at every start (root)
+  release            Undo setup: the disk opens with a new passphrase, the TPM no longer opens it (root).
                      Before Omarchy's factory reset, or when a laptop leaves management
 EOF
 }
 
 # After updates (run by a pacman hook): put back what an update undid, with no key and no question: the systemd
-# initramfs, the boot menu settings and hooks, every boot file signed and protected. Keys and the TPM are left alone; a
-# TPM that no longer opens the disk is reported (it needs the recovery key: setup). Nothing to do before setup.
+# initramfs, the boot menu settings and hooks, the menu protected, the TPM policy covering the boot files. Keyslots are
+# left alone; a TPM that no longer opens the disk is reported (it needs the recovery key: setup). Nothing to do before
+# setup.
 cmd_reassert() {
   [[ $# -eq 0 ]] || { usage >&2; exit 1; }
-  if [[ ! -f $SBCTL_DIR/keys/PK/PK.pem ]]; then
+  if ! setup_has_run; then
     log "setup hasn't run on this laptop: nothing to keep right"; return 0
   fi
   if provisioning_pending; then   # the initramfs switch would lock provisioning out (initramfs_check)
@@ -42,29 +45,33 @@ cmd_reassert() {
   CHANGED=0
   initramfs_check
   initramfs_apply
-  secureboot_maintain
+  boot_maintain        # rebuilt only when something changed; Limine's tools then run the policy hook
+  policy_current || policy_refresh || log "WARNING: the TPM policy couldn't be updated ($POLICY_ERR): the laptop may ask for the recovery key at the next start"
   if tpm_enrolled && ! tpm_unlocks; then
-    log "WARNING: the TPM no longer opens the disk (the firmware or its keys changed): the laptop will ask for the recovery key. Run setup with it."
+    log "WARNING: the TPM no longer opens the disk: the laptop will ask for the recovery key. Run setup with it."
   fi
-  log "boot settings checked$( ((CHANGED)) && echo ": repaired and re-signed" )"
+  log "boot settings checked$( ((CHANGED)) && echo ": repaired and rebuilt" )"
 }
 
-# One run, then a restart (Secure Boot only takes effect at the next start, and the TPM is bound to it):
-#   1. the systemd initramfs, Secure Boot with this laptop's keys, a one-time TPM unlock for the restart, and a recovery
-#      key; then "restart"
-#   2. at that start, finish (lib/tpm.sh): TPM unlock, the passphrase removed, the one-time unlock removed. Run by
-#      hand later (a TPM that no longer matches, Secure Boot turned on late), setup does the same with the recovery key.
+# One run, then a restart (the TPM policy is made from what a start with the new boot files measured):
+#   1. the systemd initramfs, the boot menu locked, a one-time TPM unlock for the restart, and a recovery key; then
+#      "restart"
+#   2. at that start, boot (lib/tpm.sh): the policy, TPM unlock, the passphrase removed, the one-time unlock removed.
+#      Run by hand later (a TPM that no longer opens the disk), setup does the same with the recovery key.
 # Every check that can refuse runs before anything is changed; running it again when it's done changes nothing.
 cmd_setup() {
   local json=0 done=false passphrase key=null
   [[ $# -eq 0 || ($# -eq 1 && $1 == --json) ]] || { usage >&2; exit 1; }
   [[ ${1:-} == --json ]] && json=1
   CHANGED=0 RECOVERY_KEY=""
-  secureboot_check
-  initramfs_check      # also finds the disk
   tpm_check
-  local tpm_run=0; secure_boot_active && tpm_run=1
+  pcrlock_check
+  initramfs_check      # also finds the disk
+  # boot ran at this start: setup ran before it, and the policy describes the boot files that started
+  local tpm_run=0; [[ -e $RUN_DIR/booted ]] && policy_exists && tpm_run=1
   local recovery one_time; recovery=$(luks_token_slots systemd-recovery) one_time=$(tpm_slots one-time)
+  # the boot files are still the ones that started (a rerun before the restart built new ones itself)
+  ((tpm_run)) || [[ -n $one_time ]] || pcrlock_predictable
   # A secret is needed to add a key, or to prove the recovery key before the passphrase goes. After the restart, the
   # one-time unlock stands in for it.
   if ((tpm_run)); then
@@ -73,7 +80,9 @@ cmd_setup() {
     check_disk_secret
   fi
   initramfs_apply      # the systemd initramfs; the boot image is rebuilt by the next step
-  secureboot_setup     # rebuilds and signs the boot files when anything changed, then enrolls the keys
+  boot_maintain        # the menu locked and enrolled; rebuilds the boot files when anything changed
+  recovery_pin_ensure
+  link_boot_unit
   if ((tpm_run)); then
     [[ -n $one_time ]] && trap one_time_unlock_remove EXIT   # whatever happens below
     tpm_setup
@@ -99,7 +108,7 @@ cmd_setup() {
   elif [[ $passphrase == kept ]]; then
     log "done: the TPM unlocks the disk at boot. The disk passphrase still works too: run setup again with the recovery key (instead of the passphrase) to remove it"
   else
-    log "done: the TPM unlocks the disk at boot while Secure Boot is on; the recovery key opens it otherwise"
+    log "done: the TPM unlocks the disk at boot for this laptop's own boot files; the recovery key opens it otherwise"
   fi
 }
 
@@ -116,13 +125,12 @@ cmd_status() {
       "disk.no_one_time_unlock": (if .disk.one_time_unlock == null then null else (.disk.one_time_unlock | not) end),
       "disk.recovery_key": .disk.recovery_key,
       "disk.no_passphrase": (if .disk.passphrase == null then null else (.disk.passphrase | not) end),
-      "secure_boot.enabled": .secure_boot.enabled, "secure_boot.own_keys": .secure_boot.own_keys,
-      "secure_boot.boot_files_signed": .secure_boot.boot_files_signed, "boot_menu.editor_locked": .boot_menu.editor_locked,
-      "boot_menu.config_protected": .boot_menu.config_protected, "boot_menu.fallback_protected": .boot_menu.fallback_protected};
+      "boot_menu.editor_locked": .boot_menu.editor_locked, "boot_menu.config_protected": .boot_menu.config_protected,
+      "boot_menu.fallback_protected": .boot_menu.fallback_protected, "tpm_policy.current": .tpm_policy.current};
     want as $w
     | {schema, protected: (if any($w[]; . == false) then false elif any($w[]; . == null) then null else true end),
        missing: [$w | to_entries[] | select(.value == false) | .key]} + .' \
-    <<<"{\"schema\":1,$(initramfs_status_json),$(secureboot_status_json)}")
+    <<<"{\"schema\":2,$(initramfs_status_json),$(boot_menu_status_json),$(tpm_policy_status_json)}")
   if ((json)); then printf '%s\n' "$out"; return; fi
   jq -r '
     def yn: if . == null then "unknown (run as root)" elif . then "yes" else "no" end;
@@ -130,14 +138,12 @@ cmd_status() {
     "Disk encrypted:         \(.disk.encrypted | yn)",
     "  ready for TPM unlock: \(.disk.systemd_initramfs | yn)",
     "  first-boot setup:     \(if .disk.provisioning_pending then "pending (finish it before running setup)" else "done" end)",
-    "  TPM unlocks it:       \(.disk.tpm_unlock | yn)\(if .disk.tpm_enrolled == true and .disk.tpm_unlock == false then " (enrolled, but the firmware or its keys changed: run setup with the recovery key)" else "" end)",
+    "  TPM unlocks it:       \(.disk.tpm_unlock | yn)\(if .disk.tpm_enrolled == true and .disk.tpm_unlock == false then " (enrolled, but it no longer opens the disk: run setup with the recovery key)" else "" end)",
     "  opens by itself once: \(.disk.one_time_unlock | yn)\(if .disk.one_time_unlock == true then " (setup isn'"'"'t finished: restart the laptop)" else "" end)",
     "  recovery key:         \(.disk.recovery_key | yn)",
     "  passphrase:           \(.disk.passphrase | yn)",
-    "Secure Boot:            \(if .secure_boot.enabled then "on" elif .secure_boot.setup_mode then "off, ready for keys (setup mode)" else "off" end)",
-    "  this laptop'"'"'s keys:   \(.secure_boot.own_keys | yn)",
-    "  Microsoft keys:       \(.secure_boot.microsoft_keys | yn)",
-    "  boot files signed:    \(.secure_boot.boot_files_signed | yn)",
+    "TPM policy:             \(if .tpm_policy.exists == false then "none yet\(if .disk.one_time_unlock == true then " (made at the restart)" else "" end)" else (.tpm_policy.exists | yn) end)",
+    "  covers the boot files: \(.tpm_policy.current | yn)",
     "Boot menu:",
     "  entries locked:       \(.boot_menu.editor_locked | yn)",
     "  menu protected:       \(.boot_menu.config_protected | yn)",
@@ -149,7 +155,7 @@ case "${1:-}" in
   status) shift; cmd_status "$@" ;;
   recovery-key) shift; need_root; cmd_recovery_key "$@" ;;
   reassert) shift; need_root; cmd_reassert "$@" ;;
-  finish) shift; need_root; cmd_finish "$@" ;;
+  boot) shift; need_root; cmd_boot "$@" ;;
   release) shift; need_root; cmd_release "$@" ;;
   -h|--help|"") usage ;;
   *) usage >&2; exit 1 ;;

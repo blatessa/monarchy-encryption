@@ -1,0 +1,13 @@
+#!/bin/bash
+# Limine post hook, linked by setup as /etc/boot/hooks/post.d/96-monarchy-encryption-policy, after Limine's
+# 90-limine-enroll-config and our fallback hook. Limine's tools have just written the boot files the next start will
+# use (an update, omarchy-refresh-limine, or limine-snapper-sync after a snapshot, which rewrites the menu and so
+# Limine's enrolled checksum): tell the TPM policy about them, keeping the files that started allowed too. Never fails
+# Limine's tools: a policy that couldn't be updated means the recovery key at the next start, not a broken update.
+set -uo pipefail
+lib="$(dirname "$(readlink -f "$0")")/../lib"
+source "$lib/common.sh"
+source "$lib/boot.sh"
+source "$lib/pcrlock.sh"
+policy_refresh || log "WARNING: the TPM policy couldn't be updated for the new boot files ($POLICY_ERR): the laptop will ask for the recovery key at the next start"
+exit 0

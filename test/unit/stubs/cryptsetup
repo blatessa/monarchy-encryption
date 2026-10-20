@@ -2,7 +2,7 @@
 # Stand-in for cryptsetup 2.8 (output as seen in the lab: docs/dev/findings.md). The disk is /dev/vda2 mapped as
 # "root"; STUB_NOT_LUKS=1: nothing is mapped. Its keyslots are $STUB_STATE/keyslots (see the systemd-cryptenroll stub).
 # STUB_RECOVERY_KEY_BROKEN=1: a recovery key doesn't open the disk although it was enrolled. A TPM slot whose secret
-# is "stale" no longer matches the firmware (PCR 7 changed); "-" is one that does.
+# is "stale" no longer opens the disk (its policy doesn't match what started); "-" is one that does.
 echo "cryptsetup $*" >> "$STUB_LOG"
 ks=$STUB_STATE/keyslots
 case $1 in
@@ -11,12 +11,15 @@ case $1 in
     printf '/dev/mapper/root is active and is in use.\n  type:    LUKS2\n  cipher:  aes-xts-plain64\n  device:  /dev/vda2\n' ;;
   luksUUID) [[ $2 == /dev/vda2 ]] && echo 8b81edbd-cf38-4664-82ab-17852814fdb0 ;;
   luksDump)   # --dump-json-metadata: keyslots and the tokens systemd-cryptenroll adds (none for a passphrase)
-    while read -r s t _; do echo "$s $t $(cat "$STUB_STATE/tpm2-pcrs-$s" 2>/dev/null | tr '+' ',')"; done <"$ks" |
+    while read -r s t _; do
+      echo "$s $t $([[ -e $STUB_STATE/tpm2-pcrlock-$s ]] && echo pcrlock || echo -) $(cat "$STUB_STATE/tpm2-pcrs-$s" 2>/dev/null | tr '+' ',')"
+    done <"$ks" |
       jq -Rn '[inputs | split(" ")] |
       {keyslots: (map({key: .[0], value: {type: "luks2"}}) | from_entries),
        tokens: (map(select(.[1] != "password")) | to_entries |
          map({key: (.key | tostring), value: ({type: ("systemd-" + .value[1]), keyslots: [.value[0]]} +
-           if .value[1] == "tpm2" then {"tpm2-pcrs": (.value[2] | split(",") | map(select(. != "") | tonumber))} else {} end)})
+           if .value[1] == "tpm2" then {"tpm2-pcrs": ((.value[3] // "") | split(",") | map(select(. != "") | tonumber)),
+             tpm2_pcrlock: (.value[2] == "pcrlock")} else {} end)})
          | from_entries)}' ;;
   luksAddKey)   # luksAddKey (--token-only --token-type systemd-tpm2 | --key-file=FILE) DEVICE NEWKEYFILE
     new=$(cat "${!#}")

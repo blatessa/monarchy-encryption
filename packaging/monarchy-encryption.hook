@@ -1,7 +1,8 @@
 # Installed as /usr/share/libalpm/hooks/zz-monarchy-encryption.hook: pacman runs hooks in name order across its hook
-# directories, so this runs after Limine's (80-, 90-) and Omarchy's 99-omarchy-limine, which copies an unsigned Limine
-# over the signed one on every limine upgrade (docs/dev/findings.md). Triggers: what makes Limine's tools rebuild or
-# redeploy boot files, as in 90-mkinitcpio-install and 80-limine-efi-deploy, plus Omarchy and this package.
+# directories, so this runs after Limine's (80-, 90-) and Omarchy's 99-omarchy-limine, which copies a plain Limine
+# (no enrolled menu checksum) over ours on every limine upgrade (docs/dev/findings.md). Triggers: what makes Limine's
+# tools rebuild or redeploy boot files, as in 90-mkinitcpio-install and 80-limine-efi-deploy, plus Omarchy and this
+# package.
 [Trigger]
 Type = Path
 Operation = Install
@@ -19,11 +20,10 @@ Operation = Install
 Operation = Upgrade
 Target = limine*
 Target = mkinitcpio*
-Target = sbctl
 Target = omarchy*
 Target = monarchy-encryption
 
 [Action]
-Description = Keeping disk encryption's boot settings and signatures right...
+Description = Keeping disk encryption's boot settings right...
 When = PostTransaction
 Exec = /usr/bin/monarchy-encryption reassert

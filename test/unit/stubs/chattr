@@ -1,6 +1,0 @@
-#!/bin/bash
-# Stand-in for chattr, for efivarfs: existing UEFI variables are immutable until `chattr -i` (the sbctl stub marks them
-# in $STUB_STATE/immutable; behaviour observed in the lab: docs/dev/findings.md).
-echo "chattr $*" >> "$STUB_LOG"
-[[ $1 == -i ]] && rm -f "$STUB_STATE/immutable/${2##*/}"
-exit 0

@@ -2,11 +2,13 @@
 ME_ROOT="${ME_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 ETC="${MONARCHY_ENCRYPTION_ETC:-/etc}"                            # overridable for tests, like the paths below
 EFIVARS="${MONARCHY_ENCRYPTION_EFIVARS:-/sys/firmware/efi/efivars}"
-SBCTL_DIR="${MONARCHY_ENCRYPTION_SBCTL_DIR:-/var/lib/sbctl}"       # sbctl's keys and GUID
 TPM_DEVICE="${MONARCHY_ENCRYPTION_TPM:-/dev/tpmrm0}"
 OMARCHY_PROVISIONING="${MONARCHY_ENCRYPTION_PROVISIONING:-/var/lib/omarchy/provisioning}"
-EFI_GLOBAL=8be4df61-93ca-11d2-aa0d-00e098032b8c                     # vendor GUID of the UEFI spec's own variables
-EFI_IMAGE_SECURITY=d719b2cb-3d3a-4596-a3bc-dad00e67656f             # ... and of db and dbx
+PCRLOCK="${MONARCHY_ENCRYPTION_PCRLOCK:-/usr/lib/systemd/systemd-pcrlock}"
+PCRLOCK_DIR="${MONARCHY_ENCRYPTION_PCRLOCK_DIR:-/var/lib/pcrlock.d}"   # where pcrlock reads boot file descriptions
+POLICY_FILE="${MONARCHY_ENCRYPTION_POLICY:-/var/lib/systemd/pcrlock.json}"   # pcrlock's record of the TPM policy
+STATE="${MONARCHY_ENCRYPTION_STATE:-/var/lib/monarchy-encryption}"    # the policy's recovery PIN; which files it covers
+RUN_DIR="${MONARCHY_ENCRYPTION_RUN:-/run/monarchy-encryption}"         # this start only
 
 log() { echo "monarchy-encryption: $*" >&2; logger -t monarchy-encryption -- "$*" 2>/dev/null || true; }
 die() { log "ERROR: $*"; exit 1; }

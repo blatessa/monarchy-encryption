@@ -1,6 +1,6 @@
 #!/bin/bash
 # status --json: one answer to "is this disk protected the way it should be", with what's missing, following a laptop
-# from a stock install to the end of setup and back when something changes. Read-only; null where only root can know.
+# from a stock install through setup and the restart after it and back when something changes. Read-only; null where only root can know.
 source "$(dirname "$0")/lib.sh"
 
 st() { me status --json; }
@@ -14,17 +14,20 @@ sandbox; st
 [[ $(js '.disk | [.encrypted, .tpm_enrolled, .tpm_pcrs, .passphrase] | map(tostring) | join(" ")') == "true false null true" ]] \
   && ok "encrypted, no TPM, the passphrase" || bad "disk: $(js .disk)"
 
-echo "[after the first run]"
+echo "[after setup, before the restart]"
 me_in "$DISK_PASSPHRASE" setup >/dev/null; key=$OUT; st
-[[ $(js .protected) == false && $(js '.missing | join(" ")') == "disk.tpm_unlock disk.no_passphrase secure_boot.enabled" ]] \
-  && ok "missing: the TPM, the passphrase still there, Secure Boot not on until the restart" || bad "missing: $(js .missing)"
+[[ $(js .protected) == false && $(js '.missing | join(" ")') == "disk.tpm_unlock disk.no_one_time_unlock disk.no_passphrase secure_boot.enabled" ]] \
+  && ok "missing: the TPM, the one-time unlock and the passphrase still there, Secure Boot not on until the restart" || bad "missing: $(js .missing)"
+[[ $(js '.disk | [.one_time_unlock, .tpm_enrolled, .tpm_pcrs] | map(tostring) | join(" ")') == "true false null" ]] \
+  && ok "the one-time unlock isn't the TPM unlock: not enrolled, no PCRs" || bad "disk: $(js .disk)"
 [[ $(js '[.disk.recovery_key, .secure_boot.boot_files_signed] | map(tostring) | join(" ")') == "true true" ]] && ok "a recovery key, everything signed" || bad "$OUT"
+me status; [[ $OUT == *"opens by itself once: yes (setup isn't finished: restart the laptop)"* ]] && ok "plain: says to restart" || bad "plain: $OUT"
 
-echo "[after the second run]"
-efivar SecureBoot 1; me_in "$key" setup >/dev/null; : > "$STUB_LOG"; BEFORE=$(snap); slots=$(cat "$T/state/keyslots"); st
+echo "[after the restart]"
+efivar SecureBoot 1; me_in "" finish >/dev/null; : > "$STUB_LOG"; BEFORE=$(snap); slots=$(cat "$T/state/keyslots"); st
 [[ $(js .protected) == true && $(js '.missing | length') == 0 ]] && ok "protected, nothing missing" || bad "$OUT"
-[[ $(js '.disk | [.tpm_unlock, .tpm_enrolled, (.tpm_pcrs | tostring), .recovery_key, .passphrase] | map(tostring) | join(" ")') == "true true [7] true false" ]] \
-  && ok "the TPM opens the disk, bound to PCR 7; a recovery key; no passphrase" || bad "disk: $(js .disk)"
+[[ $(js '.disk | [.tpm_unlock, .tpm_enrolled, (.tpm_pcrs | tostring), .one_time_unlock, .recovery_key, .passphrase] | map(tostring) | join(" ")') == "true true [7] false true false" ]] \
+  && ok "the TPM opens the disk, bound to PCR 7; no one-time unlock; a recovery key; no passphrase" || bad "disk: $(js .disk)"
 [[ $(snap) == "$BEFORE" && $(cat "$T/state/keyslots") == "$slots" && -z $(writes) ]] && ok "status changes nothing" || bad "status wrote: $(writes)"
 me status; [[ $RC -eq 0 && $OUT == "Protected:              yes"* && $OUT == *"boot files signed:    yes"* ]] && ok "plain: Protected: yes" || bad "plain: $OUT"
 

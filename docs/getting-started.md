@@ -29,7 +29,7 @@ sudo pacman -U monarchy-encryption-*.pkg.tar.zst
 
 Installing changes nothing until you run `setup`.
 
-## 3. Set up, first run
+## 3. Set up
 
 ```bash
 sudo monarchy-encryption setup
@@ -44,16 +44,9 @@ never written to the laptop.
 
 ## 4. Restart
 
-Restart the laptop and type the disk passphrase one last time. Secure Boot is on from this start.
-
-## 5. Set up, second run
-
-```bash
-sudo monarchy-encryption setup
-```
-
-This time give it the **recovery key** instead of the passphrase. It ties the disk to the TPM, checks the TPM opens it,
-then removes the disk passphrase, which proves both that the recovery key works and that you have it.
+Restart the laptop, soon: until you do, the laptop opens its disk by itself without Secure Boot to vouch for it. There's
+nothing to type at this start. Secure Boot is on from now, and as the laptop starts it finishes setting up by itself:
+it ties the disk to the TPM, checks the TPM opens it, and removes the disk passphrase.
 
 ```bash
 sudo monarchy-encryption status

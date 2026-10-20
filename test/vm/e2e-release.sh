@@ -78,8 +78,7 @@ echo "[setup again]"
 "$VM/install-package.sh"
 key2=$(root_with "$LAB_PASSWORD" "monarchy-encryption setup --json 2>/dev/null" | jq -r .recovery_key)
 [[ $key2 =~ ^[a-z]{8}(-[a-z]{8}){7}$ ]] && ok "setup's first run: a new recovery key" || bad "setup after the reset"
-lab_reboot "$LAB"
-root_with "$key2" "monarchy-encryption setup --json 2>/dev/null" >/dev/null
+restart_untyped && finished && ok "the restart: nothing typed, setup finished" || { bad "the restart after setup"; unlock_and_wait "$LAB" 300; }
 [[ $(st '[.protected, .missing]') == '[true,[]]' ]] && ok "protected again" || bad "status: $(st .)"
 restart_untyped && ok "starts with nothing typed" || { bad "prompt after setting up again"; unlock_and_wait "$LAB" 300 "$key2"; }
 

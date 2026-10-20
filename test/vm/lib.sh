@@ -152,7 +152,7 @@ restart_untyped() {
 # prompt) are kept with it under images/ (git-ignored). Only preconditions belong in one, never what a suite tests.
 CHECKPOINTS="$IMAGES/checkpoints"
 CHECKPOINT_VARS=()   # set by a checkpoint's build; empty for one saved by hand
-package_hash() { (cd "$VM/../.." && cat bin/* lib/* hooks/* data/* packaging/PKGBUILD packaging/*.hook 2>/dev/null) | sha256sum | cut -c1-16; }
+package_hash() { (cd "$VM/../.." && cat bin/* lib/* hooks/* data/* packaging/PKGBUILD packaging/*.hook packaging/*.service 2>/dev/null) | sha256sum | cut -c1-16; }
 
 # checkpoint_unlock UNLOCK: start the stopped lab VM and wait for ssh; UNLOCK is "tpm" (type nothing) or what to type
 checkpoint_unlock() {
@@ -192,13 +192,20 @@ checkpoint() {
   checkpoint_save "$1" "$CHECKPOINT_UNLOCK" "$id"
 }
 
-# The precondition most suites after setup want: a clean install set up by this checkout's package through both runs
-# of setup (TPM unlock, no passphrase). Sets RECOVERY_KEY.
+# finished: setup's finish, run at the start after setup, is done (the one-time unlock is gone); 1 after 120 s
+finished() {
+  local i; for i in $(seq 60); do
+    [[ $(lab_ssh_root monarchy-encryption status --json 2>/dev/null | jq -r .disk.one_time_unlock) == false ]] && return 0; sleep 2
+  done; return 1
+}
+
+# The precondition most suites after setup want: a clean install set up by this checkout's package, restarted so it
+# finished (TPM unlock, no passphrase). Sets RECOVERY_KEY.
 build_set_up() {
   "$VM/reset.sh"; "$VM/run.sh" >/dev/null
   "$VM/install-package.sh"
   RECOVERY_KEY=$(root_with "$LAB_PASSWORD" "monarchy-encryption setup --json 2>/dev/null" | jq -r .recovery_key)
-  lab_reboot "$LAB"
-  [[ $(root_with "$RECOVERY_KEY" "monarchy-encryption setup --json 2>/dev/null" | jq -r .done) == true ]] || die "setup didn't finish"
+  restart_untyped || die "the restart after setup waited at the disk prompt"
+  finished && [[ $(lab_ssh_root monarchy-encryption status --json | jq -r .protected) == true ]] || die "setup didn't finish"
   CHECKPOINT_VARS=(RECOVERY_KEY) CHECKPOINT_UNLOCK=tpm
 }

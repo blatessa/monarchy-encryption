@@ -6,11 +6,12 @@ monarchy-encryption <command>
 
 | Command | Who | What |
 |---|---|---|
-| [`setup [--json]`](#setup) | root | Secure Boot, TPM unlock and a recovery key; two runs with a restart between |
+| [`setup [--json]`](#setup) | root | Secure Boot, TPM unlock and a recovery key; finished by itself at the next start |
 | [`status [--json]`](#status) | anyone | Whether the disk is protected, and what's missing |
 | [`recovery-key [--json]`](#recovery-key) | root | Create or replace the recovery key |
 | [`release`](#release) | root | Undo `setup`: a disk passphrase again, Secure Boot handed back |
 | [`reassert`](#reassert) | root | Put back boot settings and signatures an update undid (run by a pacman hook) |
+| [`finish`](#finish) | root | Finish `setup` at the start after it (run by a service) |
 
 Commands that need root say so and stop. Exit status is 0 on success and 1 on any refusal or failure; messages go to
 standard error and to the journal (`journalctl -t monarchy-encryption`).
@@ -21,15 +22,15 @@ and the shell history.
 
 ## setup
 
-Run it twice, with a restart between (see [How it works](../concepts/how-it-works.md#why-two-runs-of-setup)).
+Run it once, then restart (see [How it works](../concepts/how-it-works.md#why-a-restart)).
 
-- **First run** (before Secure Boot is on): asks for the disk passphrase, switches to the boot environment TPM unlock
-  needs, creates this laptop's Secure Boot keys, signs everything that boots and enrolls the keys, then creates the
-  recovery key and prints it.
-- **Second run** (after the restart): asks for the recovery key (or the passphrase), ties the disk to the TPM, and
-  removes the disk passphrase when it was given the recovery key.
+- **Before the restart**: asks for the disk passphrase, switches to the boot environment TPM unlock needs, creates this
+  laptop's Secure Boot keys, signs everything that boots and enrolls the keys, lets the TPM open the disk for the
+  restart, then creates the recovery key and prints it.
+- **At the restart**, with nothing typed, [`finish`](#finish) ties the disk to the TPM and removes the disk passphrase.
 - **Later runs** change nothing and ask for nothing, unless the TPM no longer opens the disk (a firmware update): then
-  it asks for the recovery key and ties the disk to the TPM again.
+  it asks for the recovery key and ties the disk to the TPM again. Given the recovery key, it also removes a disk
+  passphrase that's still there.
 
 `--json` prints one line:
 
@@ -39,11 +40,19 @@ Run it twice, with a restart between (see [How it works](../concepts/how-it-work
 
 | Field | |
 |---|---|
-| `done` | `false`: restart the laptop, then run `setup` again |
+| `done` | `false`: restart the laptop, and it finishes by itself |
 | `recovery_key` | the new recovery key, when this run created one (store it now), else `null` |
 | `passphrase` | `kept`, `removed` (this run removed it), or `none` (there was none) |
 
 Without `--json`, the recovery key is the only thing on standard output.
+
+## finish
+
+Run by a service at the start after `setup`, once; there's nothing to run by hand. It ties the disk to the TPM, checks
+the TPM opens it, and removes the disk passphrase. Whatever happens, it then removes what let the disk open by itself
+for that start. If the laptop came up without Secure Boot (some firmwares need it turned on in their settings), it
+changes nothing else, and the disk asks for its passphrase from the next start: turn Secure Boot on, then run `setup`
+again. Its messages are in the journal (`journalctl -t monarchy-encryption`).
 
 ## status
 

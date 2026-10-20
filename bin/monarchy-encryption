@@ -17,11 +17,12 @@ usage() {
 Usage: monarchy-encryption <command>
 
   setup [--json]     Unlock the disk with the TPM at boot, protected by Secure Boot, and create a recovery key (root).
-                     Runs twice: restart in between when it says so
+                     Then restart: the laptop finishes by itself as it starts, with nothing to type
   status [--json]    Show how the disk is unlocked and whether Secure Boot protects it
   recovery-key [--json]
                      Create or replace the recovery key; it is printed once, for you to store (root)
   reassert           Put back boot settings and signatures an update undid; run by a pacman hook (root)
+  finish             Finish setup at the restart after it; run by a service at that start (root)
   release            Undo setup: the disk opens with a new passphrase, Secure Boot is handed back (root).
                      Before Omarchy's factory reset, or when a laptop leaves management
 EOF
@@ -48,9 +49,11 @@ cmd_reassert() {
   log "boot settings checked$( ((CHANGED)) && echo ": repaired and re-signed" )"
 }
 
-# Two runs, with a restart in between (Secure Boot only takes effect at the next start, and the TPM is bound to it):
-#   1. the systemd initramfs, Secure Boot with this laptop's keys, and a recovery key; then "restart, run setup again"
-#   2. TPM unlock, and the passphrase removed once the TPM and the recovery key each open the disk
+# One run, then a restart (Secure Boot only takes effect at the next start, and the TPM is bound to it):
+#   1. the systemd initramfs, Secure Boot with this laptop's keys, a one-time TPM unlock for the restart, and a recovery
+#      key; then "restart"
+#   2. at that start, finish (lib/tpm.sh): TPM unlock, the passphrase removed, the one-time unlock removed. Run by
+#      hand later (a TPM that no longer matches, Secure Boot turned on late), setup does the same with the recovery key.
 # Every check that can refuse runs before anything is changed; running it again when it's done changes nothing.
 cmd_setup() {
   local json=0 done=false passphrase key=null
@@ -59,19 +62,27 @@ cmd_setup() {
   CHANGED=0 RECOVERY_KEY=""
   secureboot_check
   initramfs_check      # also finds the disk
+  tpm_check
   local tpm_run=0; secure_boot_active && tpm_run=1
-  ((tpm_run)) && tpm_check
-  local recovery; recovery=$(luks_token_slots systemd-recovery)
-  # a secret is needed to add a key, or to prove the recovery key before the passphrase goes
-  if [[ -z $recovery ]] || { ((tpm_run)) && { ! tpm_unlocks || [[ -n $(passphrase_slots) ]]; }; }; then check_disk_secret; fi
+  local recovery one_time; recovery=$(luks_token_slots systemd-recovery) one_time=$(tpm_slots one-time)
+  # A secret is needed to add a key, or to prove the recovery key before the passphrase goes. After the restart, the
+  # one-time unlock stands in for it.
+  if ((tpm_run)); then
+    if [[ -z $one_time ]] && { [[ -z $recovery ]] || ! tpm_unlocks || [[ -n $(passphrase_slots) ]]; }; then check_disk_secret; fi
+  elif [[ -z $recovery || -z $one_time ]]; then
+    check_disk_secret
+  fi
   initramfs_apply      # the systemd initramfs; the boot image is rebuilt by the next step
   secureboot_setup     # rebuilds and signs the boot files when anything changed, then enrolls the keys
   if ((tpm_run)); then
+    [[ -n $one_time ]] && trap one_time_unlock_remove EXIT   # whatever happens below
     tpm_setup
     [[ -n $recovery ]] || recovery_key_add
     passphrase=$(remove_passphrases)
+    one_time_unlock_remove; trap - EXIT
     done=true
   else
+    one_time_unlock_add  # before the recovery key, so the output that carries the key is the final one
     [[ -n $recovery ]] || recovery_key_add
     passphrase=$([[ -n $(passphrase_slots) ]] && echo kept || echo none)
   fi
@@ -84,7 +95,7 @@ cmd_setup() {
   fi
   [[ -n $RECOVERY_KEY ]] && show_recovery_key
   if [[ $done == false ]]; then
-    log "restart the laptop, then run setup again to let the TPM unlock the disk (you'll type the passphrase once more)"
+    log "restart the laptop: it finishes setting up as it starts, with nothing to type (status shows when it's done)"
   elif [[ $passphrase == kept ]]; then
     log "done: the TPM unlocks the disk at boot. The disk passphrase still works too: run setup again with the recovery key (instead of the passphrase) to remove it"
   else
@@ -101,7 +112,9 @@ cmd_status() {
   local out; out=$(jq -c '
     def want: {"disk.encrypted": .disk.encrypted, "disk.systemd_initramfs": .disk.systemd_initramfs,
       "disk.no_provisioning_pending": (if .disk.provisioning_pending == null then null else (.disk.provisioning_pending | not) end),
-      "disk.tpm_unlock": .disk.tpm_unlock, "disk.recovery_key": .disk.recovery_key,
+      "disk.tpm_unlock": .disk.tpm_unlock,
+      "disk.no_one_time_unlock": (if .disk.one_time_unlock == null then null else (.disk.one_time_unlock | not) end),
+      "disk.recovery_key": .disk.recovery_key,
       "disk.no_passphrase": (if .disk.passphrase == null then null else (.disk.passphrase | not) end),
       "secure_boot.enabled": .secure_boot.enabled, "secure_boot.own_keys": .secure_boot.own_keys,
       "secure_boot.boot_files_signed": .secure_boot.boot_files_signed, "boot_menu.editor_locked": .boot_menu.editor_locked,
@@ -118,6 +131,7 @@ cmd_status() {
     "  ready for TPM unlock: \(.disk.systemd_initramfs | yn)",
     "  first-boot setup:     \(if .disk.provisioning_pending then "pending (finish it before running setup)" else "done" end)",
     "  TPM unlocks it:       \(.disk.tpm_unlock | yn)\(if .disk.tpm_enrolled == true and .disk.tpm_unlock == false then " (enrolled, but the firmware or its keys changed: run setup with the recovery key)" else "" end)",
+    "  opens by itself once: \(.disk.one_time_unlock | yn)\(if .disk.one_time_unlock == true then " (setup isn'"'"'t finished: restart the laptop)" else "" end)",
     "  recovery key:         \(.disk.recovery_key | yn)",
     "  passphrase:           \(.disk.passphrase | yn)",
     "Secure Boot:            \(if .secure_boot.enabled then "on" elif .secure_boot.setup_mode then "off, ready for keys (setup mode)" else "off" end)",
@@ -135,6 +149,7 @@ case "${1:-}" in
   status) shift; cmd_status "$@" ;;
   recovery-key) shift; need_root; cmd_recovery_key "$@" ;;
   reassert) shift; need_root; cmd_reassert "$@" ;;
+  finish) shift; need_root; cmd_finish "$@" ;;
   release) shift; need_root; cmd_release "$@" ;;
   -h|--help|"") usage ;;
   *) usage >&2; exit 1 ;;

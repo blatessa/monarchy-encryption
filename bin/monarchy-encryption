@@ -143,7 +143,7 @@ cmd_status() {
     "  recovery key:         \(.disk.recovery_key | yn)",
     "  passphrase:           \(.disk.passphrase | yn)",
     "TPM policy:             \(if .tpm_policy.exists == false then "none yet\(if .disk.one_time_unlock == true then " (made at the restart)" else "" end)" else (.tpm_policy.exists | yn) end)",
-    "  covers the boot files: \(.tpm_policy.current | yn)",
+    "  covers boot files:   \(.tpm_policy.current | yn)",
     "Boot menu:",
     "  entries locked:       \(.boot_menu.editor_locked | yn)",
     "  menu protected:       \(.boot_menu.config_protected | yn)",

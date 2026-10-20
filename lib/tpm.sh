@@ -29,6 +29,7 @@ tpm_setup() {
   tpm_unlocks && return 0
   policy_exists || die "there is no TPM policy for this laptop's boot files yet: restart, then run setup again"
   local old s slot=""; old=$(tpm_slots bound)
+  [[ -z $old ]] || policy_renew
   if [[ -n ${DISK_SECRET:-} ]]; then
     enroll_with_secret --tpm2-device=auto --tpm2-pcrlock="$POLICY_FILE"
   else
@@ -37,7 +38,7 @@ tpm_setup() {
   for s in $(tpm_slots bound); do [[ " $old " == *" $s "* ]] || slot=$s; done
   if ! tpm_unlocks; then
     [[ -n $slot ]] && systemd-cryptenroll --wipe-slot="$slot" "$ROOT_DEVICE" >/dev/null 2>&1
-    die "the TPM was enrolled but doesn't open the disk, so it was removed again. The recovery key and passphrase still work."
+    die "the TPM was enrolled but doesn't open the disk, so it was removed again. The recovery key still works."
   fi
   if [[ -n $old ]]; then
     systemd-cryptenroll --wipe-slot="${old// /,}" "$ROOT_DEVICE" >/dev/null 2>&1 &&

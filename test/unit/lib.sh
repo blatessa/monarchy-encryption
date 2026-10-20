@@ -28,7 +28,7 @@ sandbox() {
   export MONARCHY_ENCRYPTION_TPM="$T/tpmrm0" MONARCHY_ENCRYPTION_PROVISIONING="$T/var/lib/omarchy/provisioning"
   export MONARCHY_ENCRYPTION_PCRLOCK="$STUBS/systemd-pcrlock" MONARCHY_ENCRYPTION_PCRLOCK_DIR="$T/var/lib/pcrlock.d"
   export MONARCHY_ENCRYPTION_POLICY="$T/var/lib/systemd/pcrlock.json" MONARCHY_ENCRYPTION_STATE="$T/var/lib/monarchy-encryption"
-  export MONARCHY_ENCRYPTION_RUN="$T/run/monarchy-encryption"
+  export MONARCHY_ENCRYPTION_RUN="$T/run/monarchy-encryption" MONARCHY_ENCRYPTION_PCRLOCK_LIB="$T/usr/lib/pcrlock.d"
   export STUB_STATE="$T/state" STUB_LOG="$T/calls.log" PATH="$STUBS:$PATH"
   unset STUB_ENROLL_FAIL STUB_LIMINE_UPDATE_FAIL STUB_NOT_LUKS STUB_ROOT_SOURCE STUB_TPM_UNLOCK_FAIL STUB_WIPE_FAIL \
     STUB_RECOVERY_KEY_BROKEN STUB_KEY_UNREADABLE STUB_PCRLOCK_UNPREDICTABLE STUB_PCRLOCK_UNSUPPORTED
@@ -43,6 +43,9 @@ sandbox() {
   efivar SetupMode 0; efivar SecureBoot 0   # how Omarchy laptops come: the manufacturer's keys, Secure Boot off
   echo "0 password $DISK_PASSPHRASE" > "$T/state/keyslots"
   : > "$T/tpmrm0"   # a TPM 2.0
+  mkdir -p "$T/usr/lib/pcrlock.d/500-separator.pcrlock.d"   # systemd's own components, two of them its initramfs's
+  : > "$T/usr/lib/pcrlock.d/350-action-efi-application.pcrlock"
+  : > "$T/usr/lib/pcrlock.d/750-enter-initrd.pcrlock"; : > "$T/usr/lib/pcrlock.d/750-os-separator.pcrlock"
   : > "$STUB_LOG"
 }
 efivar() { printf "\\x06\\x00\\x00\\x00\\x0$2" > "$T/efivars/$1-$G"; }   # efivar NAME 0|1: a one-byte UEFI variable
@@ -60,5 +63,7 @@ snap() { # the machine's state: files' contents, and where links point
    find etc boot var -type l -printf '%p -> %l\n' 2>/dev/null | sort)
 }
 # restart: a new start of the sandbox laptop (/run is empty again), and the boot service that runs at every start
-restart() { rm -rf "$T/run"; me_in "" boot; }
+restart() { # the systemd initramfs, once setup put it in, measures itself
+  rm -rf "$T/run"; [[ -f $T/etc/mkinitcpio.conf.d/zz-monarchy-encryption.conf ]] && : > "$T/state/systemd-initrd"; me_in "" boot
+}
 js() { jq -r "$1" <<<"$OUT"; }   # js FILTER: a value from the last command's JSON output

@@ -119,4 +119,7 @@ me_in "$key" setup --json
   && ok "enrolled afresh with the recovery key, the stale slot removed" || bad "stale: rc $RC: $OUT $ERR $(slots)"
 t=$(line_of "--tpm2-device"); w=$(line_of "--wipe-slot=3 ")
 [[ -n $t && -n $w && $t -lt $w ]] && ok "the new enrollment comes before the old one is removed" || bad "order: enroll $t, wipe $w"
+r=$(line_of "remove-policy"); m=$(grep -n "make-policy" "$STUB_LOG" | tail -1 | cut -d: -f1)
+[[ -n $r && -n $m && $r -lt $m && $m -lt $t ]] && ok "the policy written into the TPM afresh first (a cleared TPM has none)" || bad "order: remove $r, make $m, enroll $t"
+check "the new policy allows the files that started" grep -qx "uki $(sha256sum < "$T/boot/EFI/Linux/omarchy_linux-omarchy.efi" | cut -d' ' -f1)" "$T/state/policy-covers"
 result

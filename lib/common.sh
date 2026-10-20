@@ -6,6 +6,7 @@ TPM_DEVICE="${MONARCHY_ENCRYPTION_TPM:-/dev/tpmrm0}"
 OMARCHY_PROVISIONING="${MONARCHY_ENCRYPTION_PROVISIONING:-/var/lib/omarchy/provisioning}"
 PCRLOCK="${MONARCHY_ENCRYPTION_PCRLOCK:-/usr/lib/systemd/systemd-pcrlock}"
 PCRLOCK_DIR="${MONARCHY_ENCRYPTION_PCRLOCK_DIR:-/var/lib/pcrlock.d}"   # where pcrlock reads boot file descriptions
+PCRLOCK_LIB="${MONARCHY_ENCRYPTION_PCRLOCK_LIB:-/usr/lib/pcrlock.d}"     # and systemd's own
 POLICY_FILE="${MONARCHY_ENCRYPTION_POLICY:-/var/lib/systemd/pcrlock.json}"   # pcrlock's record of the TPM policy
 STATE="${MONARCHY_ENCRYPTION_STATE:-/var/lib/monarchy-encryption}"    # the policy's recovery PIN; which files it covers
 RUN_DIR="${MONARCHY_ENCRYPTION_RUN:-/run/monarchy-encryption}"         # this start only

@@ -31,7 +31,7 @@ restart >/dev/null; : > "$STUB_LOG"; BEFORE=$(snap); slots=$(cat "$T/state/keysl
 [[ $(js '.tpm_policy | [.exists, (.pcrs | tostring), .current] | map(tostring) | join(" ")') == "true [4,11] true" ]] \
   && ok "the policy covers the boot files, over PCR 4 and 11" || bad "tpm_policy: $(js .tpm_policy)"
 [[ $(snap) == "$BEFORE" && $(cat "$T/state/keyslots") == "$slots" && -z $(writes) ]] && ok "status changes nothing" || bad "status wrote: $(writes)"
-me status; [[ $RC -eq 0 && $OUT == "Protected:              yes"* && $OUT == *"covers the boot files: yes"* ]] && ok "plain: Protected: yes" || bad "plain: $OUT"
+me status; [[ $RC -eq 0 && $OUT == "Protected:              yes"* && $OUT == *"covers boot files:   yes"* ]] && ok "plain: Protected: yes" || bad "plain: $OUT"
 
 echo "[the TPM no longer opens the disk]"
 sed -i 's/ tpm2 -$/ tpm2 stale/' "$T/state/keyslots"; st

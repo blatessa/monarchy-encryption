@@ -4,15 +4,17 @@
 # descriptions it covers ($STUB_STATE/policy-covers); once a policy exists, rewriting it needs the recovery PIN it was
 # made with ($PIN), as a start that missed the policy can't rewrite it otherwise. STUB_PCRLOCK_UNPREDICTABLE=1: the
 # firmware measured something pcrlock doesn't recognise (strict: no policy). STUB_PCRLOCK_UNSUPPORTED=1: the TPM lacks
-# PolicyAuthorizeNV.
+# PolicyAuthorizeNV. predict, as at a start with the busybox initramfs ($STUB_STATE/systemd-initrd absent: a stock
+# install), fails with systemd's initramfs components among the --components (nothing measured them).
 echo "systemd-pcrlock $*" >> "$STUB_LOG"
 cmd=$1; shift
-out="" policy=/var/lib/systemd/pcrlock.json file="" pcrs=()
+out="" policy=/var/lib/systemd/pcrlock.json file="" pcrs=() components=()
 for a in "$@"; do
   case $a in
     --pcrlock=*) out=${a#*=} ;;
     --policy=*) policy=${a#*=} ;;
     --pcr=*) pcrs+=("${a#*=}") ;;
+    --components=*) components+=("${a#*=}") ;;
     -*) ;;
     *) file=$a ;;
   esac
@@ -23,7 +25,12 @@ case $cmd in
   lock-pe|lock-uki)
     [[ -f $file && -n $out ]] || { echo "Failed to open '$file'" >&2; exit 1; }
     mkdir -p "$(dirname "$out")"; echo "${cmd#lock-} $(sha256sum <"$file" | cut -d' ' -f1)" > "$out" ;;
-  predict) [[ -z ${STUB_PCRLOCK_UNPREDICTABLE:-} ]] || unpredictable; echo "PCRs in protection mask: ${pcrs[*]}" ;;
+  predict)
+    [[ -z ${STUB_PCRLOCK_UNPREDICTABLE:-} ]] || unpredictable
+    if [[ ! -e $STUB_STATE/systemd-initrd ]] && ls "${components[@]}" 2>/dev/null | grep -q '^750-enter-initrd'; then
+      echo "Couldn't find component '750-enter-initrd' in event log." >&2; unpredictable
+    fi
+    echo "PCRs in protection mask: ${pcrs[*]}" ;;
   make-policy)
     [[ -z ${STUB_PCRLOCK_UNPREDICTABLE:-} ]] || unpredictable
     [[ -n ${PIN:-} ]] || { echo "stub: would wait at a PIN prompt (no \$PIN)" >&2; exit 1; }

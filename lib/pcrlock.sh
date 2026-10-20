@@ -67,6 +67,14 @@ policy_refresh() {
   policy_serialised
   policy_lock current && policy_make
 }
+# Writes the policy into the TPM afresh, for the files that started: a TPM that was cleared (or replaced) has no NV
+# index, and pcrlock skips writing one when its prediction hasn't changed (findings.md). The old index, if the TPM
+# still has it, is freed first. setup, re-enrolling the TPM.
+policy_renew() {
+  "$PCRLOCK" remove-policy --policy="$POLICY_FILE" >/dev/null 2>&1 || true
+  rm -f "$POLICY_FILE"
+  policy_booted || die "the TPM policy couldn't be written ($POLICY_ERR), so the TPM wasn't enrolled again. The recovery key still works."
+}
 policy_current() { # the policy covers every boot file now on the ESP
   policy_exists && [[ -f $STATE/policy.files ]] && [[ -z $(comm -23 <(boot_file_hashes) "$STATE/policy.files") ]]
 }
@@ -83,13 +91,28 @@ pcrlock_check() {
   "$PCRLOCK" is-supported --quiet >/dev/null 2>&1 || die "this laptop's TPM can't hold the boot policy (it needs TPM 2.0 \
 with PolicyAuthorizeNV, revision 1.38 or later). Nothing was changed."
 }
+# A stock Omarchy laptop starts with the busybox initramfs, which measures nothing: what systemd's initramfs measures
+# (entering the initrd, the OS separator) is missing from this start's record, so it's checked without them; leaving
+# them out matches only when they're absent. The policy itself is made at the restart, by the systemd initramfs.
 pcrlock_predictable() {
-  local d img i=0 ok=0
-  d=$(mktemp -d)
-  "$PCRLOCK" lock-pe "$(limine_bin)" --pcrlock="$d/$LIMINE_COMPONENT.pcrlock" >/dev/null 2>&1 &&
-    for img in $(boot_images); do "$PCRLOCK" lock-uki "$img" --pcrlock="$d/$UKI_COMPONENT-$i.pcrlock" >/dev/null 2>&1; i=$((i + 1)); done &&
-    "$PCRLOCK" predict --no-pager --components="$d" --components=/usr/lib/pcrlock.d $(printf -- '--pcr=%s ' "${POLICY_PCRS[@]}") \
-      --strict=yes >/dev/null 2>&1 && ok=1
+  local d img i=0 ok=0 c skip
+  d=$(mktemp -d); mkdir "$d/ours" "$d/systemd" "$d/firmware"
+  for c in "$PCRLOCK_LIB"/*; do
+    ln -s "$c" "$d/systemd/"
+    skip=0; for s in 750-enter-initrd 750-os-separator; do [[ $(basename "$c") == "$s".pcrlock* ]] && skip=1; done
+    ((skip)) || ln -s "$c" "$d/firmware/"
+  done
+  if "$PCRLOCK" lock-pe "$(limine_bin)" --pcrlock="$d/ours/$LIMINE_COMPONENT.pcrlock" >/dev/null 2>&1; then
+    ok=1
+    for img in $(boot_images); do "$PCRLOCK" lock-uki "$img" --pcrlock="$d/ours/$UKI_COMPONENT-$i.pcrlock" >/dev/null 2>&1 || ok=0; i=$((i + 1)); done
+  fi
+  if ((ok)); then
+    ok=0
+    for c in systemd firmware; do
+      "$PCRLOCK" predict --no-pager --components="$d/ours" --components="$d/$c" $(printf -- '--pcr=%s ' "${POLICY_PCRS[@]}") \
+        --strict=yes >/dev/null 2>&1 && { ok=1; break; }
+    done
+  fi
   rm -rf "$d"
   ((ok)) || die "the firmware's record of this start doesn't match the boot files on the disk, so the TPM can't be tied \
 to them. If the laptop was updated since it started, restart it and run setup again. Nothing was changed."

@@ -6,10 +6,10 @@ source "$(dirname "$0")/lib.sh"
 fail=0
 ok()  { printf '  PASS %s\n' "$1"; }
 bad() { printf '  FAIL %s\n' "$1"; fail=1; }
-# what setup would change: the initramfs settings, crypttab, the boot image and Limine, the keyslots, sbctl's keys
+# what setup would change: the initramfs settings, crypttab, the boot image and Limine, the keyslots, the TPM policy
 fingerprint() {
   lab_ssh_root bash -c 'md5sum /etc/crypttab /etc/mkinitcpio.conf.d/* /boot/EFI/Linux/*.efi /boot/EFI/limine/limine_x64.efi 2>/dev/null
-    cryptsetup luksDump /dev/vda2 | grep -E "^ +[0-9]+: luks2"; ls /var/lib/sbctl/keys 2>/dev/null; true'
+    cryptsetup luksDump /dev/vda2 | grep -E "^ +[0-9]+: luks2"; ls /var/lib/systemd/pcrlock.json /var/lib/pcrlock.d /var/lib/monarchy-encryption 2>/dev/null; true'
 }
 
 checkpoint installed build_installed

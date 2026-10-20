@@ -1,6 +1,6 @@
 #!/bin/bash
 # Throw the lab VM away and start again from the clean install: a new disk overlay on images/base/disk.qcow2, and
-# fresh copies of its firmware variables (Secure Boot back in setup mode) and TPM state. Takes seconds.
+# fresh copies of its firmware variables and TPM state. Takes seconds.
 source "$(dirname "$0")/lib.sh"
 
 [[ -f $BASE/disk.qcow2 && -f $BASE/vars.fd && -d $BASE/tpm ]] || die "no base install: run test/vm/install.sh"

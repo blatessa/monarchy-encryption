@@ -1,7 +1,7 @@
 #!/bin/bash
 # Lab: release on a laptop that's fully set up, then Omarchy's own factory reset and first-boot setup, then setup again.
-# release gives the disk a passphrase back and hands Secure Boot back, so the reset's unsigned boot files start; the
-# reset (asked for that passphrase) and first-boot setup run as Omarchy ships them, driven by keystrokes; setup then
+# release gives the disk a passphrase back and removes the TPM and its policy; the reset (asked for that passphrase)
+# and first-boot setup run as Omarchy ships them, driven by keystrokes; setup then
 # takes the laptop back to protected. Starts from the set-up checkpoint (lib.sh). LAB_SAVE=1 saves a checkpoint after
 # first-boot setup, for debugging what follows. About 15 minutes.
 source "$(dirname "$0")/lib.sh"
@@ -29,10 +29,12 @@ checkpoint set-up build_set_up; key=$RECOVERY_KEY; mkdir -p "$shots"
 
 echo "[release]"
 out=$(root_with "$NEWPASS" "monarchy-encryption release" 2>&1) && ok "release succeeds" || bad "release: $out"
-[[ $(st '[.disk.tpm_enrolled, .disk.passphrase, .secure_boot.setup_mode, .secure_boot.own_keys]') == '[false,true,true,false]' ]] \
-  && ok "status: no TPM, a passphrase, the firmware in setup mode" || bad "status: $(st .)"
+[[ $(st '[.disk.tpm_enrolled, .disk.passphrase, .tpm_policy.exists]') == '[false,true,false]' ]] \
+  && ok "status: no TPM, a passphrase, no TPM policy" || bad "status: $(st .)"
+lab_ssh_root bash -c 'ls /etc/boot/hooks/post.d/*monarchy* /etc/systemd/system/*/monarchy-encryption-* /var/lib/monarchy-encryption 2>/dev/null' \
+  && bad "left behind: $(lab_ssh_root bash -c 'ls -d /etc/boot/hooks/post.d/*monarchy* /etc/systemd/system/*/monarchy-encryption-* /var/lib/monarchy-encryption 2>/dev/null')" \
+  || ok "nothing of ours runs at start or on updates"
 lab_reboot "$LAB" "$NEWPASS" && ok "the laptop starts with the new passphrase typed"
-[[ $(st .secure_boot.enabled) == false ]] && ok "Secure Boot is off" || bad "Secure Boot still on"
 
 echo "[Omarchy's factory reset]"
 # Harness only: the reset removes every account, so leave our ssh key where first-boot provisioning installs it from

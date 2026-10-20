@@ -48,7 +48,11 @@ a hook locks the boot menu before its checksum is sealed into Limine. After ever
 `monarchy-encryption reassert`, which puts back anything an update undid (a Limine upgrade replaces the signed Limine
 with an unsigned one, for example). It needs no key and never touches the disk's keys.
 
-## Why two runs of setup
+## Why a restart
 
-Secure Boot only takes effect at the next start, and the TPM can only be tied to Secure Boot once it's on. So the first
-run sets up Secure Boot and the recovery key, and the second, after a restart, ties the disk to the TPM.
+Secure Boot only takes effect at the next start, and the TPM can only be tied to Secure Boot once it's on. So `setup`
+sets up Secure Boot and the recovery key, and lets the TPM open the disk once, for the restart, with nothing checked.
+As the laptop starts, with Secure Boot on, it ties the disk to the TPM, removes the disk passphrase, and removes that
+one-time unlock, whatever happens. Between `setup` and that start, anyone with the laptop could start it and get in, as
+on an unencrypted disk: restart straight away. The key for that start never leaves the TPM, so the disk alone, taken
+out of the laptop, stays locked.

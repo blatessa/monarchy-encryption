@@ -34,6 +34,6 @@ restart_untyped && ok "and it still unlocks itself" || { bad "it now asks for a 
 echo "[provisioning done]"
 lab_ssh_root bash -c 'rm -rf /var/lib/omarchy/provisioning /etc/omarchy/provisioning.key /etc/limine-entry-tool.d/99-omarchy-provisioning-unlock.conf /etc/mkinitcpio.conf.d/99-omarchy-provisioning-key.conf; limine-update >/dev/null 2>&1'
 [[ $(root_with "$LAB_PASSWORD" "monarchy-encryption setup --json 2>/dev/null" | jq -r .done) == false ]] && ok "setup goes ahead" || bad "setup after provisioning"
-lab_reboot "$LAB" && ok "and the laptop starts (passphrase typed)"
+restart_untyped && finished && ok "and the laptop restarts with nothing typed and finishes" || bad "the restart after setup"
 
 ((fail)) && { echo "RESULT: FAIL"; exit 1; }; echo "RESULT: ALL PASS"

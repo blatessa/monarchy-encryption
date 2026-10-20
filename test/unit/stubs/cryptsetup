@@ -29,10 +29,12 @@ case $1 in
     fi
     slot=0; while grep -q "^$slot " "$ks"; do slot=$((slot + 1)); done
     echo "$slot password $new" >> "$ks"; echo "Key slot $slot created." ;;
-  open)   # open --test-passphrase --token-only --token-type systemd-tpm2 DEVICE: the TPM opens it
+  open)   # open --test-passphrase --token-only (--token-type systemd-tpm2 | --token-id=N) DEVICE: the TPM opens it
     if [[ " $* " == *" --token-only "* ]]; then
-      [[ -z ${STUB_TPM_UNLOCK_FAIL:-} ]] && grep -q '^[0-9]* tpm2 -$' "$ks" || { echo "No usable token is available." >&2; exit 1; }
-      echo "Key slot $(awk '$2 == "tpm2" && $3 == "-" {print $1; exit}' "$ks") unlocked."; exit 0
+      lines=$(grep -v ' password ' "$ks")   # token ids number the slots that have one, as luksDump shows them
+      for a in "$@"; do [[ $a == --token-id=* ]] && lines=$(sed -n "$(( ${a#*=} + 1 ))p" <<<"$lines"); done
+      [[ -z ${STUB_TPM_UNLOCK_FAIL:-} ]] && grep -q '^[0-9]* tpm2 -$' <<<"$lines" || { echo "No usable token is available." >&2; exit 1; }
+      echo "Key slot $(awk '$2 == "tpm2" && $3 == "-" {print $1; exit}' <<<"$lines") unlocked."; exit 0
     fi
     # open --test-passphrase [--disable-external-tokens] --key-file=- [--key-slot=N] DEVICE
     secret=$(cat) slot=""

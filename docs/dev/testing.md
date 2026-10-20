@@ -38,14 +38,14 @@ wrong, fix the stub and the note.
 
 | Suite | Covers |
 |---|---|
-| `cli` | Every command exists, `--help`, unknown commands and options, root checks; the PKGBUILD installs every library the CLI loads; the harness itself (stubs shadow the real tools and record calls) |
+| `cli` | Every command exists, `--help`, unknown commands and options, root checks; the PKGBUILD installs every library the CLI loads and the finish service where `setup` links it from; the harness itself (stubs shadow the real tools and record calls) |
 | `initramfs` | The drop-in's hook mapping against Omarchy's real hook config (plain, NVIDIA-only, non-Latin layout, unknown hooks), the crypttab line, refusals that change nothing, re-running that rebuilds nothing, `status` |
 | `secureboot` | `setup`'s Secure Boot part: keys, signing before enrolling, the boot menu settings, the fallback hook, re-running, every refusal leaving the machine unchanged, `status --json` |
-| `status` | `status --json` from a stock install through both runs of `setup`: `protected` and `missing`, the TPM enrolled but no longer opening the disk, an unsigned boot image, null without root, and changing nothing |
-| `release` | `release`: the passphrase added via the TPM or the recovery key (or kept), proven before the TPM slot goes, then Secure Boot handed back and our keys and hooks removed, in that order; never on a command line; refusals change nothing; `setup` afterwards |
+| `status` | `status --json` from a stock install through `setup` and the restart after it (the one-time unlock): `protected` and `missing`, the TPM enrolled but no longer opening the disk, an unsigned boot image, null without root, and changing nothing |
+| `release` | `release`: the passphrase added via the TPM or the recovery key (or kept), proven before the TPM slot (or the one-time unlock) goes, then Secure Boot handed back and our keys and hooks removed, in that order; never on a command line; refusals change nothing; `setup` afterwards |
 | `provisioning` | Each of Omarchy's provisioning markers makes `setup` refuse with nothing changed; `status` reports it (also without root); `reassert` stands down; `setup` goes ahead once it's done |
 | `reassert` | `reassert` and the editor hook: nothing to do before setup or when nothing changed; Omarchy's menu copied over ours stays locked through `limine-update`; an unsigned Limine, the enroll setting, the drop-in, a missing hook and an unsigned boot image put back; a stale TPM reported, no key touched; the pacman hook's name, action and triggers |
-| `tpm` | `setup`'s two runs: the recovery key last in the first; after the restart, the TPM bound to PCR 7 and proven; the passphrase removed only in a run unlocked with the recovery key; a stale TPM slot enrolled afresh; no TPM, a TPM that doesn't open the disk, a wrong or missing passphrase: refused with the keyslots unchanged; `status` |
+| `tpm` | `setup` and the restart: the one-time unlock (no PCRs, proven) and then the recovery key, last; `finish` with no input binds the TPM to PCR 7, proves it, removes the passphrase and then the one-time unlock, never makes a recovery key; the one-time unlock removed whatever happens (no Secure Boot, the TPM failing), the passphrase kept without a recovery key; `setup` by hand after the restart; a passphrase removed by hand only with the recovery key; a stale TPM slot enrolled afresh; no TPM, a wrong or missing passphrase: refused with the keyslots unchanged |
 | `recoverykey` | `recovery-key`: created and replaced, unlocked by the passphrase, the current recovery key or the TPM; the new key proven before the old one is removed; the key on stdout or in JSON and nowhere else; refusals that leave the keyslots alone |
 
 ## The lab
@@ -83,7 +83,7 @@ Lab suites (each starts from a checkpoint: a clean install with the package, or 
 | `test/vm/e2e-release.sh` | `release` on a set-up laptop, restart with the new passphrase (Secure Boot off), Omarchy's factory reset and first-boot setup driven by keystrokes, then `setup` back to protected |
 | `test/vm/e2e-provisioning.sh` | Omarchy's provisioning staged as a factory reset leaves it: the laptop unlocks itself with its key file, `setup` refuses and changes nothing so it keeps doing so, `status` says pending; once it's done, `setup` goes ahead |
 | `test/vm/e2e-updates.sh` | On a laptop that's fully set up: a kernel update, a limine upgrade, `omarchy-refresh-limine` and a simulated migration each leave it starting with nothing typed from its Limine entry, everything signed, the menu locked (no Edit on screen) and enrolled |
-| `test/vm/e2e-tpm.sh` | `setup`'s two runs end with the laptop starting with nothing typed; the passphrase removed with the recovery key; a kernel update still unlocks; Secure Boot off (OVMF without Secure Boot) and a changed db bring back the prompt, which the recovery key opens; setup then enrolls the TPM afresh; `status` before, during and after |
+| `test/vm/e2e-tpm.sh` | `setup`, then a restart with nothing typed: the one-time unlock (no PCRs) opens the disk, `finish` binds the TPM to PCR 7 and removes the passphrase and the one-time unlock, the recovery key stays out of the journal, the next start unlocks through PCR 7; Secure Boot off (OVMF without Secure Boot) and a changed db bring back the prompt, which the recovery key opens; setup then enrolls the TPM afresh; `status` before, during and after |
 | `test/vm/e2e-secureboot.sh` | `setup` on a clean install; Secure Boot on after a restart; the menu has no editor; an unsigned EFI program is refused; a kernel update stays signed; a snapshot taken before setup is reported, one taken after starts; a changed menu is refused |
 
 Run long boots in the background (`setsid test/vm/install.sh </dev/null >install.log 2>&1 &`) rather than holding a
@@ -93,7 +93,8 @@ terminal.
 after a clean shutdown (copied with reflinks, so it takes seconds). Suites start from a precondition with
 `checkpoint NAME BUILD`: restored when the package and the `BUILD` function are unchanged since it was saved, otherwise
 built and saved; suites running side by side take turns (a lock), so one builds it and the others restore it.
-`build_installed` (a clean install with this checkout's package) is where most suites start; `build_set_up` (a laptop through both runs of `setup`) is the shared one. Only preconditions go in a
+`build_installed` (a clean install with this checkout's package) is where most suites start; `build_set_up` (a laptop
+through `setup` and the restart after it) is the shared one for suites after setup. Only preconditions go in a
 checkpoint, never what the suite is testing: `e2e-updates` starts from "set up", but no suite starts from a state its
 own subject made. For debugging, `checkpoint.sh save NAME` the VM just before a failing step and `restore NAME` to
 retry it; those are never rebuilt. Checkpoints live in `test/vm/images/checkpoints/` (git-ignored) with the values

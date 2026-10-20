@@ -16,6 +16,13 @@ Every refusal happens before anything is changed, unless it says otherwise. Mess
 | "…/etc/crypttab already describes the disk 'root' differently" | Someone set the disk up by hand. Remove that line, or make it the one the message shows, and run `setup` again. |
 | "these boot files are still unsigned" | Something else writes boot files. Run `sudo limine-update`, then `setup` again; if it persists, open an issue with the file names. |
 
+## setup didn't finish at the restart
+
+`status` still says `opens by itself once: yes`, or the disk asked for its passphrase at the next start: look at
+`journalctl -t monarchy-encryption`. "the laptop started without Secure Boot on" means the firmware didn't turn Secure
+Boot on by itself: turn it on in the firmware settings, start the laptop (type the passphrase), then run
+`sudo monarchy-encryption setup` with the recovery key.
+
 ## The laptop asks for the recovery key at every start
 
 The TPM no longer vouches for the laptop: Secure Boot was turned off, or the firmware or its keys changed. Type the

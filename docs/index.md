@@ -21,8 +21,8 @@ The standard answer, the one BitLocker gives Windows, is:
 
 ## What it does
 
-- `setup` takes an Omarchy laptop to TPM unlock in two runs with a restart between, and removes the shared disk
-  passphrase at the end.
+- `setup` takes an Omarchy laptop to TPM unlock with one run and a restart, with nothing typed at the restart, and
+  removes the shared disk passphrase.
 - `recovery-key` creates or replaces the recovery key, shown once for you or your MDM to store.
 - `status` says whether the laptop is protected and, if not, what's missing, in a form an MDM can read.
 - Kernel, Limine and Omarchy updates keep the laptop protected; a pacman hook puts back anything an update undid.

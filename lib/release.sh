@@ -48,7 +48,8 @@ cmd_release() {
     add_passphrase
   fi
 
-  # 2. the TPM no longer opens the disk. A passphrase (proven above, or kept) and the recovery key remain.
+  # 2. the TPM no longer opens the disk (nor setup's one-time unlock, if the restart after setup hasn't happened). A
+  # passphrase (proven above, or kept) and the recovery key remain.
   if [[ -n $tpm ]]; then
     [[ -n $(passphrase_slots) ]] || die "the disk has no passphrase, so the TPM was kept"
     systemd-cryptenroll --wipe-slot="${tpm// /,}" "$ROOT_DEVICE" >/dev/null 2>&1 || die "removing the TPM from the disk failed"
@@ -65,6 +66,6 @@ passphrase; clear the Secure Boot keys in the firmware settings instead, or run 
   if ((keys)); then rm -rf "$SBCTL_DIR"; log "removed this laptop's Secure Boot keys"; fi
 
   # 4. updates leave the boot files alone from now on (reassert finds no keys; the hooks are unlinked)
-  rm -f "$ETC/boot/hooks/post.d/$EDITOR_HOOK" "$ETC/boot/hooks/post.d/$FALLBACK_HOOK"
+  rm -f "$ETC/boot/hooks/post.d/$EDITOR_HOOK" "$ETC/boot/hooks/post.d/$FALLBACK_HOOK" "$FINISH_LINK"
   log "released: restart, and type the disk passphrase at the prompt. Omarchy's factory reset (omarchy-system-factory-reset) asks for it too; setup sets the laptop up again."
 }

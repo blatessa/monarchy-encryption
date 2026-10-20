@@ -1,9 +1,8 @@
 # Roll out to a fleet
 
-An MDM can run every step. Every command reads its secret as one line on standard input and, with `--json`, answers
-in JSON on standard output. One step still needs someone at the laptop: the disk passphrase, typed once at the restart
-between the two runs of `setup` (an unattended restart is [planned](https://github.com/blatessa/monarchy-encryption/issues/37)).
-Do it where the laptops are prepared, before they're handed out.
+An MDM can run every step, with nobody at the keyboard. Every command reads its secret as one line on standard input
+and, with `--json`, answers in JSON on standard output. Between `setup` and the restart after it, the laptop opens its
+disk by itself, so do it where the laptops are prepared, before they're handed out, and restart straight away.
 
 ## The flow
 
@@ -15,25 +14,20 @@ Do it where the laptops are prepared, before they're handed out.
 2. **Clear the firmware's Secure Boot keys** (setup mode). Many fleet laptops can be ordered or configured that way.
 3. **Update, then install the package**: `omarchy update` (a fresh install has no package lists yet), then `pacman -U`
    the release file, as in [Getting started](../getting-started.md).
-4. **First run**, with the disk passphrase. Store the recovery key it returns:
+4. **Set up**, with the disk passphrase. Store the recovery key it returns: it's the only copy, and once the laptop
+   has restarted, the only way into the disk besides the TPM.
 
     ```bash
     printf '%s\n' "$DISK_PASSPHRASE" | monarchy-encryption setup --json
     # {"schema":1,"done":false,"recovery_key":"…","passphrase":"kept"}
     ```
 
-5. **Restart, and type the disk passphrase** at the prompt, this one last time.
-6. **Second run**, with the recovery key you stored:
+5. **Restart.** Nothing to type: as the laptop starts, it ties the disk to the TPM and removes the disk passphrase.
+   `status --json` then says `"protected": true`.
+6. **Directory sign-in** with [monarchy-identity](https://docs.monarchy.run/monarchy-identity/guides/automation/).
 
-    ```bash
-    printf '%s\n' "$RECOVERY_KEY" | monarchy-encryption setup --json
-    # {"schema":1,"done":true,"recovery_key":null,"passphrase":"removed"}
-    ```
-
-7. **Directory sign-in** with [monarchy-identity](https://docs.monarchy.run/monarchy-identity/guides/automation/).
-
-`"done": false` always means "restart, then run setup again". Running `setup` on a laptop that's done changes nothing
-and needs no input, so an MDM can run it on every check-in.
+`"done": false` means "restart the laptop". Running `setup` on a laptop that's done changes nothing and needs no input,
+so an MDM can run it on every check-in.
 
 ## Checking a laptop
 
@@ -46,7 +40,7 @@ field: [Status output](../reference/status-output.md).
 
 ## Recovery keys
 
-The recovery key is shown once, by `setup`'s first run or by `recovery-key`. Store it with the laptop's record:
+The recovery key is shown once, by `setup` or by `recovery-key`. Store it with the laptop's record:
 there's no other copy. Replacing it (`recovery-key --json`) needs no secret once the TPM unlocks the disk, and the old
 key stops working. A replacement by anyone with `sudo` on the laptop leaves a line in its journal
 (`journalctl -t monarchy-encryption`).

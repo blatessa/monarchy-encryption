@@ -15,6 +15,7 @@ Disk encrypted:         yes
   ready for TPM unlock: yes
   first-boot setup:     done
   TPM unlocks it:       no (enrolled, but the firmware or its keys changed: run setup with the recovery key)
+  opens by itself once: no
   recovery key:         yes
   passphrase:           no
 Secure Boot:            on
@@ -38,7 +39,7 @@ One JSON object on one line. Check `protected` first. When it's `false`, `missin
   "missing": [],
   "disk": {
     "encrypted": true, "systemd_initramfs": true, "provisioning_pending": false,
-    "tpm_unlock": true, "tpm_enrolled": true, "tpm_pcrs": [7],
+    "tpm_unlock": true, "tpm_enrolled": true, "tpm_pcrs": [7], "one_time_unlock": false,
     "recovery_key": true, "passphrase": false
   },
   "secure_boot": {
@@ -57,7 +58,7 @@ as root.
 |---|---|
 | `schema` | The version of this format. It changes only when a field changes meaning or goes away; new fields can be added without changing it. |
 | `protected` | `true` when everything below that `setup` takes care of is as it should be. `false` when anything is wrong (even if other things are unknown). `null` when nothing is wrong but something couldn't be checked. |
-| `missing` | The fields that keep `protected` from being `true`, written as `section.field`, for example `"disk.tpm_unlock"`. Unknown fields aren't listed. `disk.no_passphrase` is listed when the disk still has a passphrase, `disk.no_provisioning_pending` while Omarchy's first-boot setup is pending. |
+| `missing` | The fields that keep `protected` from being `true`, written as `section.field`, for example `"disk.tpm_unlock"`. Unknown fields aren't listed. `disk.no_passphrase` is listed when the disk still has a passphrase, `disk.no_one_time_unlock` until the restart after `setup`, `disk.no_provisioning_pending` while Omarchy's first-boot setup is pending. |
 
 ### `disk`
 
@@ -69,6 +70,7 @@ as root.
 | `tpm_unlock` | The TPM opens the disk **right now**, so the laptop will start without asking for anything. | If `tpm_enrolled` is `true`, the firmware or its Secure Boot keys changed since `setup` (a firmware update, say): the laptop asks for the recovery key at start. Run `setup` with the recovery key. Otherwise run `setup`. |
 | `tpm_enrolled` | The TPM has been set up to open the disk (whether or not it still does). | — |
 | `tpm_pcrs` | Which measurements the TPM checks before opening the disk: `[7]` is Secure Boot's state. `null` when the TPM isn't set up. | — |
+| `one_time_unlock` | The disk opens by itself at the next start, with nothing checked: `setup` left this for the restart after it, and it goes at that start. | `false` is the goal. While it's `true`, restart the laptop. If it stays `true` after a restart, see [Troubleshooting](../guides/troubleshooting.md#setup-didnt-finish-at-the-restart). |
 | `recovery_key` | The disk has a recovery key. | Run `setup`, or `recovery-key`. |
 | `passphrase` | The disk can still be opened with a typed passphrase (usually the one chosen at install). | `false` is the goal. To remove it, run `setup` with the recovery key. |
 

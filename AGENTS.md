@@ -6,9 +6,9 @@ Guidance for coding agents (and humans) working in this repo. Keep it short and 
 `monarchy-encryption` makes an Omarchy (Arch + Hyprland, Limine, LUKS on btrfs) laptop unlock its disk with the TPM,
 protected by Secure Boot with the laptop's own keys, plus a per-laptop recovery key. It's a single-purpose
 utility like [monarchy-identity](https://github.com/blatessa/monarchy-identity): called by a person or an MDM, not a
-platform. Status: 0.1.0 (October 2026), tested in the lab only. `setup` (two runs) and `recovery-key` take a laptop to
-TPM unlock bound to Secure Boot, with a recovery key and no passphrase; `status --json` reports whether it is,
-`reassert` keeps it that way across updates, and `release` undoes it. The lab's hibernation is unreliable (#21). Public
+platform. Status: 0.1.0 (October 2026), tested in the lab only. `setup` (one run, then a restart with nothing typed)
+and `recovery-key` take a laptop to TPM unlock bound to Secure Boot, with a recovery key and no passphrase; `status
+--json` reports whether it is, `reassert` keeps it that way across updates, and `release` undoes it. The lab's hibernation is unreliable (#21). Public
 docs are the MkDocs site in `docs/` (nav in `mkdocs.yml`), served at https://docs.monarchy.run/monarchy-encryption/. Read
 `docs/dev/research.md` first, then `docs/dev/architecture.md` (decisions), `docs/dev/findings.md` (traps) and
 `docs/dev/testing.md` (the two test layers and the lab).

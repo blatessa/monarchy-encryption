@@ -131,13 +131,14 @@ the TPM slot are never touched here (removing the passphrase belongs to #5, behi
 
 **Where it goes.** stdout only: the key alone on a line, or `{"schema":1,"recovery_key":…,"previous_key":
 "none"|"removed"|"not_removed"}` with `--json`. Explanations go to stderr, the log says only "recovery key created" or
-"replaced". Storing it is the caller's job. `setup` creates one in its first run (below).
+"replaced". Storing it is the caller's job. `setup` creates one (below).
 
 ## TPM unlock
 
-**Decision:** the TPM opens the disk at boot, bound to **PCR 7** only. `setup` gets there in **two runs** with a
-restart between, and removes the installer's passphrase once the TPM and the recovery key each open the disk. Issue
-#5, October 2026, systemd 262 and swtpm in the lab. The three choices were the owner's.
+**Decision:** the TPM opens the disk at boot, bound to **PCR 7** only. `setup` gets there in **one run and a restart**
+with nothing typed, and removes the installer's passphrase once the TPM opens the disk and the recovery key has been
+handed over. Issue #5, October 2026, systemd 262 and swtpm in the lab; the restart with nothing typed: #37, October
+2026. The choices were the owner's.
 
 **PCR 7 only.** It records the Secure Boot state: whether it's on, and which keys are enrolled (PK, KEK, db, dbx).
 Kernel and Omarchy updates don't change it, so nothing has to be re-enrolled after one (tested). Secure Boot off,
@@ -147,26 +148,49 @@ signed software". What it doesn't catch: a boot image this laptop signed itself 
 initramfs, which needs root on the laptop first. Binding to the measured boot image too (a signed PCR 11 policy) would
 close that, at the cost of producing a signed policy on every boot image rebuild through Limine's tools: a later issue.
 
-**Two runs.** Secure Boot takes effect at the next start, and PCR 7 is measured by the firmware at boot, so
-enrolling in the same run that enrolls the keys would bind the disk to "Secure Boot off". Predicting the value
+**A restart.** Secure Boot takes effect at the next start, and PCR 7 is measured by the firmware at boot, so
+enrolling in the run that enrolls the keys would bind the disk to "Secure Boot off". Predicting the value
 (systemd-pcrlock) was rejected: a wrong guess on some firmware is a laptop that never unlocks by itself.
 
-1. First run (Secure Boot not on yet): the systemd initramfs, Secure Boot, then a recovery key, made **last** so the
-   output that carries it is the final one (`setup --json`: `{"done": false, "recovery_key": "…"}`). It ends with
-   "restart, then run setup again".
-2. Second run (started with Secure Boot on and this laptop's keys): enrolls the TPM (`--tpm2-device=auto
-   --tpm2-pcrs=7`), and proves it opens the disk through the same token the initramfs uses (`cryptsetup open
-   --test-passphrase --token-only --token-type systemd-tpm2`). No change to `/etc/crypttab`: systemd-cryptsetup tries
-   the TPM token by itself.
+1. `setup` (Secure Boot not on yet): the systemd initramfs, Secure Boot, a **one-time unlock** (below), then a
+   recovery key, made **last** so the output that carries it is the final one (`setup --json`: `{"done": false,
+   "recovery_key": "…"}`). It links `monarchy-encryption-finish.service` into `multi-user.target.wants` and ends with
+   "restart".
+2. At the restart (Secure Boot on with this laptop's keys), the service runs `finish`: it enrolls the TPM
+   (`--tpm2-device=auto --tpm2-pcrs=7`, unlocked by the one-time unlock), proves it opens the disk through the same
+   token the initramfs uses (`cryptsetup open --test-passphrase --token-only --token-id=N`), removes the passphrase,
+   then the one-time unlock and the service's link. No change to `/etc/crypttab`: systemd-cryptsetup tries the TPM
+   tokens by itself.
 
-Both runs read the recovery key or passphrase (terminal, or one line on stdin) and check it opens the disk **before
-anything is changed**. A finished laptop needs no input at all: `setup` then changes nothing.
+**The one-time unlock** is a TPM slot bound to no PCRs (`--tpm2-pcrs=`), so the restart needs nobody at the keyboard
+(#37). Until that start, anyone holding the laptop can start it and get in: one start with the disk effectively
+unencrypted, the same exposure as Omarchy's own provisioning window. Chosen over the alternatives:
 
-**The passphrase goes, by default,** only in a run unlocked with the **recovery key**: that proves the recovery key
-opens the disk and that the caller has it. A second run given the passphrase enrolls the TPM, keeps the passphrase,
-and says how to finish (an MDM just sends the key it got from the first run). The TPM is proven before the passphrase
-slots are wiped and again after. Only keyslots with no token are wiped: the installer's passphrase, or one added with
-`cryptsetup`.
+| Option | Why not |
+|---|---|
+| Predict PCR 7 for that one start (systemd-pcrlock) | A wrong guess is a passphrase prompt, which is the problem being solved; the prediction is the part most likely to differ on real firmware. |
+| A key file in the boot image (Omarchy's provisioning) | The same exposure, but the key sits in plain text on the ESP: readable from the disk alone, and it can outlive its deletion on flash. The TPM's secret never leaves the TPM, and the disk alone stays locked. |
+| A person types the passphrase at the restart (0.1.0) | No unattended rollout. |
+
+`finish` removes the one-time unlock **whatever happens** (an EXIT trap): the TPM enrolment failing, or the laptop
+starting without Secure Boot (some firmwares need it turned on in their settings), leaves the passphrase and the
+recovery key, and the disk asks from the next start. Not leaving it is the point: a laptop that never finishes would
+otherwise open by itself indefinitely. `status` reports it (`disk.one_time_unlock`, part of `protected`), and
+`setup` run by hand after the restart does the same as `finish`. TPM tokens are told apart by their PCRs: `tpm_enrolled`
+and `tpm_unlocks` look only at tokens bound to PCRs, the one-time unlock is the one with none.
+
+`setup` reads the recovery key or passphrase (terminal, or one line on stdin) and checks it opens the disk **before
+anything is changed**. `finish` needs none: the one-time unlock opens the disk. A finished laptop needs no input at all:
+`setup` then changes nothing.
+
+**The passphrase goes** once the TPM opens the disk and the recovery key has been handed over. Printing it counts as
+handing it over (the owner's call, #37): an MDM sends it to its endpoint, a person stores it; asking the caller to
+send it back would cost a step, and the unattended restart is the point. The one-time unlock is the evidence: it's
+there only after `setup` printed the key (or one existed before). Without a recovery key, `finish` keeps the
+passphrase. Run by hand, `setup` removes the passphrase only when given the recovery key; given the passphrase, it
+keeps it and says how to finish. The TPM is proven before the passphrase slots are wiped and again after. Only
+keyslots with no token are wiped: the installer's passphrase, or one added with `cryptsetup`. `finish` never creates a
+recovery key: its output goes to the journal, and there's nobody to hand it to.
 
 **A TPM slot that no longer matches** (a firmware update, or the keys changed) leaves the disk asking at boot. Running
 `setup` again with the recovery key enrolls the TPM afresh: the new slot is enrolled and proven first, then the stale
@@ -210,20 +234,19 @@ provisioning and factory reset".
 **The flow that works today** (README, "Setting up a laptop"):
 
 1. Unattended install with a disk passphrase the MDM generates for this laptop, separate from the user's password.
-2. `setup` with that passphrase on stdin; the MDM stores the recovery key it returns. Restart.
-3. `setup` with the recovery key: TPM unlock, the passphrase removed.
+2. `setup` with that passphrase on stdin; the MDM stores the recovery key it returns.
+3. Restart, with nothing typed: TPM unlock, the passphrase removed (`finish`, above).
 4. `monarchy-identity enroll`: directory sign-in.
 
-No lasting secret crosses the MDM channel except the recovery key, which the MDM is meant to hold. One step needs a
-person: the restart between the runs asks for the disk passphrase, since the TPM isn't tied to the disk until the
-second run. (An earlier version of this section said no step did; corrected while writing the user docs.)
+No lasting secret crosses the MDM channel except the recovery key, which the MDM is meant to hold. No step needs a
+person (until #37, the restart asked for the disk passphrase).
 
 **Why not deferred provisioning yet.** Omarchy's deferred install exists for exactly this hand-off, but its pieces
 assume it owns the disk's keys:
 
 | Omarchy does | What it does to a set-up laptop |
 |---|---|
-| Unlocks the provisioning window with `cryptkey=` and a key file in the initramfs | The systemd initramfs ignores `cryptkey=`: after `setup`'s first run the disk asks for a throwaway passphrase nobody knows (tested). |
+| Unlocks the provisioning window with `cryptkey=` and a key file in the initramfs | The systemd initramfs ignores `cryptkey=`: after `setup` the disk asks for a throwaway passphrase nobody knows (tested). |
 | First-boot re-key: add the owner's password, kill every other slot | Removes the TPM and recovery slots; the owner's password becomes the disk passphrase again (the consumer model this project replaces). |
 | Asks the owner on tty1 for a local account | A fleet laptop's people sign in with their directory account (monarchy-identity). |
 

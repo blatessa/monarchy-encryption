@@ -1,7 +1,7 @@
 #!/bin/bash
-# Lab: setup's two runs end with the TPM unlocking the disk at boot. With Secure Boot off or a changed key database
-# the disk prompt comes back and the recovery key opens it; setup then enrolls the TPM afresh. A kernel update still
-# unlocks. The passphrase goes only when the TPM and the recovery key each open the disk. Resets the lab first and
+# Lab: setup, then a restart with nothing typed: the one-time unlock opens the disk, and finish binds the TPM to Secure
+# Boot and removes the passphrase. With Secure Boot off or a changed key database the disk prompt comes back and the
+# recovery key opens it; setup then enrolls the TPM afresh. A kernel update still unlocks. Resets the lab first and
 # leaves it finished (TPM and recovery key, no passphrase). About 12 minutes.
 source "$(dirname "$0")/lib.sh"
 fail=0
@@ -30,25 +30,29 @@ status_is false "disk.systemd_initramfs disk.tpm_unlock disk.recovery_key disk.n
 [[ $(lab_ssh monarchy-encryption status --json | jq -c '[.protected, .missing]') == '[false,["secure_boot.enabled"]]' ]] \
   && ok "status as a user: not protected, from what a user can see (Secure Boot is off)" || bad "user status: $(lab_ssh monarchy-encryption status --json)"
 
-echo "[the first run]"
+echo "[setup]"
 j=$(setup_json "$LAB_PASSWORD"); key=$(field recovery_key "$j")
-[[ $(field done "$j") == false && $key =~ ^[a-z]{8}(-[a-z]{8}){7}$ ]] && ok "Secure Boot and a recovery key; restart needed" || bad "run 1: $j"
-status_is false "disk.tpm_unlock disk.no_passphrase secure_boot.enabled" && ok "status: still missing the TPM, removing the passphrase, and Secure Boot (on after the restart)" || bad "status after run 1"
-lab_reboot "$LAB"
+[[ $(field done "$j") == false && $key =~ ^[a-z]{8}(-[a-z]{8}){7}$ ]] && ok "Secure Boot and a recovery key; restart needed" || bad "setup: $j"
+status_is false "disk.tpm_unlock disk.no_one_time_unlock disk.no_passphrase secure_boot.enabled" \
+  && ok "status: the TPM not bound yet, the one-time unlock and the passphrase there, Secure Boot on after the restart" || bad "status after setup"
+[[ $(lab_ssh_root monarchy-encryption status --json | jq -c '.disk | [.one_time_unlock, .tpm_enrolled, .tpm_pcrs]') == '[true,false,null]' ]] \
+  && ok "the one-time unlock is bound to no PCRs" || bad "one-time: $(lab_ssh_root cryptsetup luksDump --dump-json-metadata /dev/vda2 | jq -c .tokens)"
+tpm_opens && ok "the TPM opens the disk now (before Secure Boot is on)" || bad "the one-time unlock doesn't open the disk"
 
-echo "[the second run, with the passphrase]"
-j=$(setup_json "$LAB_PASSWORD")
-[[ $(field done "$j") == true && $(field passphrase "$j") == kept && $(field recovery_key "$j") == null ]] && ok "the TPM enrolled; the passphrase kept" || bad "run 2: $j"
+echo "[the restart, with nothing typed]"
 restart_untyped && ok "the laptop starts with nothing typed" || { bad "it waited at the disk prompt"; unlock_and_wait "$LAB" 300; }
-[[ $(cryptsetup_log) != *"does not match"* ]] && ok "the TPM opened the disk" || bad "cryptsetup: $(cryptsetup_log)"
-
-echo "[the third run, with the recovery key]"
-j=$(setup_json "$key")
-[[ $(field done "$j") == true && $(field passphrase "$j") == removed ]] && ok "the passphrase is removed" || bad "run 3: $j"
+finished && ok "finish ran at that start" || bad "finish: $(lab_ssh_root journalctl -b -u monarchy-encryption-finish -o cat)"
+[[ $(lab_ssh_root journalctl -b -u monarchy-encryption-finish -o cat) == *"setup finished"* ]] && ok "finish says it finished" \
+  || bad "finish: $(lab_ssh_root journalctl -b -u monarchy-encryption-finish -o cat)"
+lab_ssh_root journalctl -o cat | grep -qF "$key" && bad "a recovery key in the journal" || ok "no recovery key in the journal"
+status_is true "" && ok "status: protected, nothing missing" || bad "status after the restart"
 opens "$LAB_PASSWORD" && bad "the passphrase still opens the disk" || ok "the passphrase no longer opens the disk"
 opens "$key" && ok "the recovery key does" || bad "the recovery key doesn't open the disk"
 tpm_opens && ok "and the TPM does" || bad "the TPM doesn't open the disk"
-restart_untyped && ok "the laptop starts with nothing typed" || { bad "it waited at the disk prompt"; unlock_and_wait "$LAB" 300 "$key"; }
+[[ $(lab_ssh_root systemd-cryptenroll /dev/vda2 | grep -c tpm2) == 1 ]] && ok "one TPM slot (the one-time unlock removed)" || bad "slots: $(lab_ssh_root systemd-cryptenroll /dev/vda2)"
+lab_ssh_root test -e /etc/systemd/system/multi-user.target.wants/monarchy-encryption-finish.service && bad "finish still enabled" || ok "finish won't run again"
+restart_untyped && ok "the next start: nothing typed, through the TPM bound to Secure Boot" || { bad "it waited at the disk prompt"; unlock_and_wait "$LAB" 300 "$key"; }
+[[ $(cryptsetup_log) != *"does not match"* ]] && ok "the TPM opened the disk" || bad "cryptsetup: $(cryptsetup_log)"
 j=$(setup_json ""); [[ $(field done "$j") == true && $(field passphrase "$j") == none ]] && ok "setup again: done, nothing asked" || bad "run 4: $j"
 status_is true "" && ok "status: protected, nothing missing" || bad "status when done"
 [[ $(lab_ssh_root monarchy-encryption status --json | jq -c .disk.tpm_pcrs) == "[7]" ]] && ok "status: the TPM is bound to PCR 7" || bad "pcrs"

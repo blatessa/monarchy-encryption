@@ -148,6 +148,11 @@ Seen: lab VM (swtpm), Omarchy 4.0.5, systemd 262, sbctl 0.18, October 2026; issu
   certificates in `/var/lib/sbctl/keys/custom/db/` without setup mode (sbctl signs the update with the KEK).
 - **Secure Boot off, in the lab**: start the same variables, disk and TPM with `OVMF_CODE.4m.fd` (Arch's build
   without Secure Boot) instead of `OVMF_CODE.secboot.4m.fd`. PCR 7 changes, and switching back restores it.
+- **The one-time unlock** (#37, same lab): `--tpm2-pcrs=` (empty) binds to no PCRs; the token records `tpm2-pcrs:
+  []`, which is how setup tells it from the PCR 7 one. It opens the disk with Secure Boot off and at the restart with
+  it on, with nothing typed. With two TPM tokens, `cryptsetup open --test-passphrase --token-only --token-id=N DEV`
+  tests one of them (by token id, from `luksDump --dump-json-metadata`).
+  `systemd-cryptenroll --unlock-tpm2-device=auto` enrolls the PCR 7 slot unlocked by the one-time one.
 
 ## The disk passphrase can differ from the user's password
 

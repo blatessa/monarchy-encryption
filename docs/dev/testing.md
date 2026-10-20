@@ -66,18 +66,24 @@ test/vm/install-package.sh   # build the package from this checkout and install 
 test/vm/boot-loop.sh N LABEL # reboot N times, typing the passphrase; counts boots that never come up
 test/vm/hibernate-loop.sh N LABEL  # hibernate N times; counts real resumes (unreliable in the lab: #21)
 test/vm/checkpoint.sh save NAME [UNLOCK] | restore NAME | list | clear   # lab states, for debugging (below)
+test/vm/run-suites.sh [-j N] [SUITE...]  # suites side by side, a VM each; all of them by default (below)
 ```
 
-Lab suites (each resets the lab first):
+**Run suites with `run-suites.sh`**: `test/vm/run-suites.sh tpm updates`, or no names for all of them. It builds the
+package once, gives each suite its own VM (`images/lab-SUITE`, 4 GB, ssh on 2230 and up) and runs as many at once as
+free memory allows (at most 4, or `-j N`), then prints each suite's result and time, and the failed checks. Logs:
+`images/logs/`. A suite run on its own (`test/vm/e2e-tpm.sh`) uses the one lab VM, `images/lab`, as before.
+
+Lab suites (each starts from a checkpoint: a clean install with the package, or a set-up laptop):
 
 | Suite | Covers |
 |---|---|
-| `test/vm/e2e-initramfs.sh` | `setup` on a clean install: the themed passphrase screen, systemd opens the disk, re-running changes nothing (boot image included), a snapshot starts writable; hibernation is reported, not counted, until #21 |
+| `test/vm/e2e-initramfs.sh` | `setup` on a clean install: the themed passphrase screen, systemd opens the disk, re-running changes nothing (boot image included), a snapshot starts writable. Hibernation is left to `hibernate-loop.sh` until #21 |
 | `test/vm/e2e-recoverykey.sh` | `recovery-key` after `setup`: the key opens the disk and starts the laptop when typed at the disk prompt; replaced, the old one opens nothing; the passphrase is kept; the key isn't in the journal or on disk; a wrong passphrase changes nothing |
 | `test/vm/e2e-release.sh` | `release` on a set-up laptop, restart with the new passphrase (Secure Boot off), Omarchy's factory reset and first-boot setup driven by keystrokes, then `setup` back to protected |
 | `test/vm/e2e-provisioning.sh` | Omarchy's provisioning staged as a factory reset leaves it: the laptop unlocks itself with its key file, `setup` refuses and changes nothing so it keeps doing so, `status` says pending; once it's done, `setup` goes ahead |
 | `test/vm/e2e-updates.sh` | On a laptop that's fully set up: a kernel update, a limine upgrade, `omarchy-refresh-limine` and a simulated migration each leave it starting with nothing typed from its Limine entry, everything signed, the menu locked (no Edit on screen) and enrolled |
-| `test/vm/e2e-tpm.sh` | `setup`, then a restart with nothing typed: the one-time unlock (no PCRs) opens the disk, `finish` binds the TPM to PCR 7 and removes the passphrase and the one-time unlock, the recovery key stays out of the journal, the next start unlocks through PCR 7; a kernel update still unlocks; Secure Boot off (OVMF without Secure Boot) and a changed db bring back the prompt, which the recovery key opens; setup then enrolls the TPM afresh; `status` before, during and after |
+| `test/vm/e2e-tpm.sh` | `setup`, then a restart with nothing typed: the one-time unlock (no PCRs) opens the disk, `finish` binds the TPM to PCR 7 and removes the passphrase and the one-time unlock, the recovery key stays out of the journal, the next start unlocks through PCR 7; Secure Boot off (OVMF without Secure Boot) and a changed db bring back the prompt, which the recovery key opens; setup then enrolls the TPM afresh; `status` before, during and after |
 | `test/vm/e2e-secureboot.sh` | `setup` on a clean install; Secure Boot on after a restart; the menu has no editor; an unsigned EFI program is refused; a kernel update stays signed; a snapshot taken before setup is reported, one taken after starts; a changed menu is refused |
 
 Run long boots in the background (`setsid test/vm/install.sh </dev/null >install.log 2>&1 &`) rather than holding a
@@ -86,7 +92,9 @@ terminal.
 **Checkpoints** make the loop shorter. A checkpoint is the VM's disk overlay, firmware variables and TPM state, saved
 after a clean shutdown (copied with reflinks, so it takes seconds). Suites start from a precondition with
 `checkpoint NAME BUILD`: restored when the package and the `BUILD` function are unchanged since it was saved, otherwise
-built and saved. `build_set_up` (a laptop through `setup` and the restart after it) is the shared one. Only preconditions go in a
+built and saved; suites running side by side take turns (a lock), so one builds it and the others restore it.
+`build_installed` (a clean install with this checkout's package) is where most suites start; `build_set_up` (a laptop
+through `setup` and the restart after it) is the shared one for suites after setup. Only preconditions go in a
 checkpoint, never what the suite is testing: `e2e-updates` starts from "set up", but no suite starts from a state its
 own subject made. For debugging, `checkpoint.sh save NAME` the VM just before a failing step and `restore NAME` to
 retry it; those are never rebuilt. Checkpoints live in `test/vm/images/checkpoints/` (git-ignored) with the values
@@ -110,6 +118,7 @@ How it fits together (`test/vm/lib.sh`):
   With one, the firmware's console list and systemd's UKI stub add `console=` for it, and Plymouth shows a plain-text
   disk prompt instead of Omarchy's themed one (findings.md). For kernel messages while debugging a boot, set
   `LAB_SERIAL=1` and read `serial.log`.
-- **Ports and files.** ssh is forwarded on 127.0.0.1:2223 (monarchy-identity's lab uses 2222). Each running VM keeps
+- **Ports and files.** ssh is forwarded on 127.0.0.1:2223 (monarchy-identity's lab uses 2222); `run-suites.sh` gives
+  its VMs 2230 and up (`LAB_NAME`, `LAB_SSH_PORT`). Each running VM keeps
   `qmp.sock`, `swtpm.log` and screenshots (and `serial.log` with `LAB_SERIAL=1`) in its directory. Everything under
   `test/vm/images/` and `test/vm/keys/` is git-ignored.

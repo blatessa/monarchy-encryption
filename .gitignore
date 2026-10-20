@@ -1,6 +1,6 @@
 # lab VM artifacts: disk images, firmware vars, TPM state, SSH keys (never commit these)
-test/vm/images/
-test/vm/keys/
+test/vm/images
+test/vm/keys
 test/vm/tpm/
 *.pkg.tar.*
 site/

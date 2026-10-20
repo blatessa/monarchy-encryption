@@ -51,8 +51,8 @@ press "$LAB" down; sleep 0.3; press "$LAB" up; sleep 0.3; text=$(menu_text); cp 
 [[ $text == *"ENTER"* && $text != *"Edit"* && $text != *"Blank Entry"* ]] && ok "the boot menu offers no Edit" || bad "menu: $text (screen: $shots/menu.png)"
 press "$LAB" ret; up_untyped 120 && ok "starts with nothing typed" || { bad "didn't start on its own"; unlock_and_wait "$LAB" 300 "$key"; }
 
-echo "[a migration: omarchy-settings rewrites Omarchy's initramfs settings, then the boot image is rebuilt]"
-out=$(pkg omarchy-settings)
+echo "[a migration: an Omarchy update (omarchy-settings rewrites its initramfs settings), then the boot image is rebuilt]"
+out=$(pkg omarchy omarchy-settings) || bad "pacman -S omarchy omarchy-settings: $(tail -n 3 <<<"$out")"
 lab_ssh_root limine-mkinitcpio >/dev/null 2>&1
 [[ $(lab_ssh_root bash -c 'source /etc/mkinitcpio.conf.d/omarchy_hooks.conf; for f in /etc/mkinitcpio.conf.d/*.conf; do source $f; done; echo " ${HOOKS[*]} "') == *" sd-encrypt "* ]] \
   && ok "our drop-in still maps Omarchy's hooks to the systemd ones" || bad "hooks after the migration"

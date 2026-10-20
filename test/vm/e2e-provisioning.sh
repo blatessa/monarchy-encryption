@@ -1,7 +1,7 @@
 #!/bin/bash
 # Lab: Omarchy's provisioning staged as a factory reset or deferred install leaves it (a throwaway keyslot, its key
 # file in the boot image, cryptkey=). setup refuses and changes nothing, so the laptop keeps unlocking itself with that
-# key file; once provisioning is done, setup goes ahead. Resets the lab first. About 6 minutes.
+# key file; once provisioning is done, setup goes ahead. Starts from the installed checkpoint. About 6 minutes.
 source "$(dirname "$0")/lib.sh"
 fail=0
 ok()  { printf '  PASS %s\n' "$1"; }
@@ -12,8 +12,7 @@ fingerprint() {
     cryptsetup luksDump /dev/vda2 | grep -E "^ +[0-9]+: luks2"; ls /var/lib/sbctl/keys 2>/dev/null; true'
 }
 
-"$VM/reset.sh"; "$VM/run.sh" >/dev/null
-"$VM/install-package.sh"
+checkpoint installed build_installed
 
 echo "[provisioning staged, as a factory reset leaves it]"
 lab_ssh_root bash -c 'k=$(head -c 24 /dev/urandom | base64 | tr -dc a-zA-Z0-9); printf "%s" "$k" > /tmp/k

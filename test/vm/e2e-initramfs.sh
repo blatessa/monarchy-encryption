@@ -1,6 +1,7 @@
 #!/bin/bash
 # Lab: setup's systemd initramfs on a clean install, then what only a real boot can show: the themed prompt, systemd
-# opening the disk, a snapshot entry, hibernation, and re-running setup. Resets the lab first. About 5 minutes.
+# opening the disk, a snapshot entry, and re-running setup. Starts from the installed checkpoint. About 3 minutes.
+# Hibernation isn't here: the lab's is unreliable even on stock (#21); hibernate-loop.sh tries it on demand.
 source "$(dirname "$0")/lib.sh"
 fail=0
 ok()  { printf '  PASS %s\n' "$1"; }
@@ -11,8 +12,7 @@ corner() { magick "$shots/s.png" -format '%[hex:p{20,20}]' info: 2>/dev/null; } 
 st() { lab_ssh_root monarchy-encryption status --json | jq -r "$1"; }
 fingerprint() { lab_ssh_root bash -c 'md5sum /etc/mkinitcpio.conf.d/* /etc/crypttab /boot/EFI/Linux/*.efi /boot/limine.conf /etc/default/limine'; }
 
-"$VM/reset.sh"; "$VM/run.sh" >/dev/null; mkdir -p "$shots"
-"$VM/install-package.sh"
+checkpoint installed build_installed; mkdir -p "$shots"
 
 echo "[setup]"
 out=$(root_with "$LAB_PASSWORD" "monarchy-encryption setup" 2>&1) && ok "setup succeeds" || { bad "setup failed"; sed 's/^/      /' <<<"$out"; }
@@ -48,24 +48,6 @@ if (unlock_and_wait "$LAB" 300) 2>/dev/null && [[ $(lab_ssh 'findmnt -no FSTYPE 
   ok "it starts from the boot menu, writable"
 else screenshot "$LAB" "$shots/snapshot.png"; bad "snapshot didn't start (screen: $shots/snapshot.png)"
   qmp "$LAB" '"system_reset"' >/dev/null; sleep 3; unlock_and_wait "$LAB" 300; fi
-lab_reboot "$LAB"
-
-echo "[hibernation]"
-# Resume is unreliable in the lab even on a stock install (#21, docs/dev/findings.md), so this is reported, not
-# counted: up to three tries, stopping at the first real resume. Make it a check again once #21 is fixed.
-resumed=""
-for try in 1 2 3; do
-  ((try == 1)) || lab_reboot "$LAB"
-  id=$(lab_ssh 'cat /proc/sys/kernel/random/boot_id | tee /tmp/marker')
-  lab_ssh_root systemctl hibernate >/dev/null 2>&1 || true
-  for _ in $(seq 120); do vm_running "$LAB" || break; sleep 1; done
-  vm_running "$LAB" && { qmp "$LAB" '"quit"' >/dev/null; sleep 2; }
-  start_vm "$LAB"; unlock_and_wait "$LAB" 300
-  [[ $(lab_ssh 'cat /tmp/marker 2>/dev/null') == "$id" ]] && { resumed=$try; break; }
-done
-if [[ -n $resumed ]]; then ok "it resumes after the passphrase, with what was in memory (try $resumed of 3)"
-else printf '  NOTE %s\n' "no resume in 3 tries: the lab's hibernation is unreliable even on stock (#21), so this is not counted"; fi
-
 "$VM/stop.sh"
 ((fail)) && { echo "RESULT: FAIL"; exit 1; }
 echo "RESULT: ALL PASS"

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Lab: setup's Secure Boot part on a clean install, then what only the real firmware can show. Resets the lab first
-# and leaves it with Secure Boot on. About 5 minutes.
+# Lab: setup's Secure Boot part on a clean install, then what only the real firmware can show. Starts from the installed
+# checkpoint and leaves it with Secure Boot on. About 5 minutes.
 source "$(dirname "$0")/lib.sh"
 fail=0
 ok()  { printf '  PASS %s\n' "$1"; }
@@ -9,8 +9,7 @@ shots=$LAB/e2e-secureboot; menu_text() { screenshot "$LAB" "$shots/m.png"; tesse
 reboot_vm() { lab_reboot "$LAB"; }
 st() { lab_ssh_root monarchy-encryption status --json | jq -r "$1"; }
 
-"$VM/reset.sh"; "$VM/run.sh" >/dev/null; mkdir -p "$shots"
-"$VM/install-package.sh"
+checkpoint installed build_installed; mkdir -p "$shots"
 lab_ssh_root bash -c 'snapper -c root create -d before-setup && limine-snapper-sync' >/dev/null 2>&1
 
 echo "[setup]"

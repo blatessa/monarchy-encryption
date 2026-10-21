@@ -1,6 +1,6 @@
 # Status and limits
 
-Version 0.1.0. **Tested in a virtual machine** (QEMU with UEFI firmware and a software TPM, Omarchy 4.0.5) and on one
+Version 0.2.0. **Tested in a virtual machine** (QEMU with UEFI firmware and a software TPM, Omarchy 4.0.5) and on one
 laptop (an MSI, AMI firmware, set up and restarted with nothing typed). Try it on a spare laptop before a fleet.
 
 ## Works

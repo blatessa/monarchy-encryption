@@ -1,7 +1,7 @@
 # Maintainer: Monarchy contributors
 pkgbase=monarchy-encryption
 pkgname=(monarchy-encryption)
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="TPM disk unlock for Omarchy, tied to the laptop's own boot files, with a recovery key"
 arch=(any)

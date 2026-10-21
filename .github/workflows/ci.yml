@@ -53,7 +53,10 @@ jobs:
           bsdtar -tf "$p" | grep -v '/$'
           bsdtar -tf "$p" | grep -qx usr/bin/monarchy-encryption
           bsdtar -tf "$p" | grep -qx usr/share/monarchy-encryption/lib/common.sh
-          bsdtar -tf "$p" | grep -qx usr/share/monarchy-encryption/lib/secureboot.sh
+          bsdtar -tf "$p" | grep -qx usr/share/monarchy-encryption/lib/boot.sh
+          bsdtar -tf "$p" | grep -qx usr/share/monarchy-encryption/lib/pcrlock.sh
+          bsdtar -tf "$p" | grep -qx usr/share/monarchy-encryption/hooks/limine-policy
+          bsdtar -tf "$p" | grep -qx usr/lib/systemd/system/monarchy-encryption-boot.service
           bsdtar -tf "$p" | grep -qx usr/share/monarchy-encryption/hooks/limine-fallback
           bsdtar -tf "$p" | grep -qx usr/share/monarchy-encryption/lib/initramfs.sh
           bsdtar -tf "$p" | grep -qx usr/share/monarchy-encryption/data/zz-monarchy-encryption.conf

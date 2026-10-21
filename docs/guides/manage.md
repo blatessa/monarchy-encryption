@@ -2,17 +2,19 @@
 
 ## When the laptop asks for the recovery key
 
-The disk asks for the recovery key when the TPM won't vouch for the laptop: Secure Boot was turned off, its keys were
-changed, or the firmware was updated. Type the recovery key at the disk prompt, dashes included. Then, once the laptop
-has started:
+The disk asks for the recovery key when the TPM won't vouch for what started: a boot file changed outside the update
+tools, a snapshot with an older boot image, or a TPM that was cleared. Type the recovery key at the disk prompt, dashes
+included.
+
+As the laptop starts, it tells the TPM about the boot files that started, so the next start needs nothing typed. If
+it asks again, the TPM no longer holds what it needs (cleared, or the mainboard replaced): once the laptop has
+started,
 
 ```bash
 sudo monarchy-encryption setup     # give it the recovery key
 ```
 
-`setup` ties the disk to the TPM again for the laptop as it is now, and the next start needs nothing typed.
-
-If Secure Boot was turned off, turn it back on in the firmware settings first.
+ties the disk to the TPM again.
 
 ## Replace the recovery key
 
@@ -26,8 +28,8 @@ after it has been read out to someone over the phone, for example.
 
 ## Updates
 
-Nothing to do. Kernel, Limine and Omarchy updates keep the laptop protected: they're signed as they're built, and a
-pacman hook puts back anything an update undid. `omarchy-refresh-limine` is fine too. To check:
+Nothing to do. Kernel, Limine and Omarchy updates keep the laptop protected: the TPM is told about the new boot files
+as they're built, and a pacman hook puts back anything an update undid. `omarchy-refresh-limine` is fine too. To check:
 
 ```bash
 sudo monarchy-encryption status
@@ -39,11 +41,10 @@ sudo monarchy-encryption status
 sudo monarchy-encryption release     # asks for a new disk passphrase
 ```
 
-`release` undoes `setup`: the disk unlocks with the new passphrase again, the TPM no longer opens it, and the firmware's
-Secure Boot keys are handed back (Secure Boot is off from the next start). The disk stays encrypted. An MDM gives the new
-passphrase on standard input; if the TPM no longer opens the disk (after a firmware update, say), it also needs the
-recovery key, as a second line.
+`release` undoes `setup`: the disk unlocks with the new passphrase again, and the TPM no longer opens it. The disk stays
+encrypted. An MDM gives the new passphrase on standard input; if the TPM no longer opens the disk (a cleared TPM, say),
+it also needs the recovery key, as a second line.
 
 To **factory reset** a laptop, run `release` first, then Omarchy's reset (`omarchy-system-factory-reset`), which asks
-for the passphrase you just set. Without `release`, the reset leaves boot files the firmware refuses to start. After
+for the passphrase you just set (`setup` removed the old one). After
 the reset and its first-boot setup, `setup` takes the laptop back.

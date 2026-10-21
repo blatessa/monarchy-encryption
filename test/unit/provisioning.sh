@@ -14,7 +14,7 @@ for m in "$P/pending" etc/omarchy/provisioning.key etc/mkinitcpio.conf.d/99-omar
   sandbox; stage "$m"; BEFORE=$(snap); slots=$(cat "$T/state/keyslots")
   me_in "$DISK_PASSPHRASE" setup
   [[ $RC -eq 1 && $ERR == *"first-boot setup hasn't finished"* && $ERR == *"Nothing was changed"* ]] && ok "setup refuses, says why" || bad "rc $RC: $ERR"
-  [[ $(snap) == "$BEFORE" && $(cat "$T/state/keyslots") == "$slots" ]] && ! called "limine-update" && ! called "sbctl create-keys" \
+  [[ $(snap) == "$BEFORE" && $(cat "$T/state/keyslots") == "$slots" ]] && ! called "limine-update" \
     && ok "nothing changed: no initramfs switch, no keys, no keyslot" || bad "changed: $(cat "$STUB_LOG")"
 done
 

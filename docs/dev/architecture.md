@@ -23,7 +23,7 @@ packages Omarchy installs.
    It ships as [`data/zz-monarchy-encryption.conf`](https://github.com/blatessa/monarchy-encryption/blob/main/data/zz-monarchy-encryption.conf), and `setup` copies it in.
 2. One line in `/etc/crypttab`: `root UUID=<luks uuid> none luks,x-initrd.attach` (`/etc/crypttab.initramfs` is
    deprecated in mkinitcpio 42). The name `root` keeps `/dev/mapper/root`, so `root=` and `resume=` stay valid.
-3. Rebuild the UKI (`limine-update`, as part of the Secure Boot step, so it's built and signed once).
+3. Rebuild the UKI (`limine-update`, together with the boot menu step, so it's built once).
 
 `setup` does all three (#18). Before changing anything, it checks that `/` really is on LUKS, and that any existing
 `/etc/crypttab` line for the mapping opens the same volume, with no key file, in the initramfs (extra options are
@@ -59,57 +59,80 @@ Omarchy's own `/etc` files is edited.
 - Deferred provisioning embeds a keyfile in the UKI so the disk unlocks itself until first-boot setup (see
   research.md). Not checked here: whether that path still works with a systemd initramfs. It belongs to #9.
 
-## Secure Boot with each laptop's own keys
+## Measured boot, not Secure Boot ownership
 
-**Decision:** `setup` creates Secure Boot keys on the laptop with `sbctl`, signs everything that boots, and enrolls
-the keys (with Microsoft's alongside). Issue #4, October 2026, Omarchy 4.0.5 in the lab.
+**Decision:** the TPM opens the disk only for the boot files this laptop measured: a systemd-pcrlock policy over
+**PCR 4** (Limine, which carries the menu's checksum, and the boot image) and **PCR 11** (the boot image's sections, as
+its stub measured them), kept in a TPM NV index. The firmware's Secure Boot keys are left as they are. Issue #26,
+October 2026, systemd 262 in the lab and a read-only check on an MSI laptop. Replaced owning Secure Boot with each
+laptop's own keys (#4, #5), the owner's call.
 
-**One key set per laptop, not one per organisation.** The laptop re-signs its own boot image on every kernel update,
-so its private signing key has to live on the laptop. With one organisation-wide key, one lost laptop would hold the key
-every other laptop trusts. A per-laptop key lost with its laptop trusts nothing else. Nothing has to be distributed or
-stored centrally.
+**Why not Secure Boot.** Enrolling the laptop's own keys needs the firmware in setup mode. Laptops ship with the
+manufacturer's platform key enrolled (an MSI: "MSI SHIP PK", immutable from the OS), and clearing it is a visit to
+the firmware settings, on every laptop. A fleet can't do that; the lab, which starts in setup mode, never showed it.
+Measured boot needs nothing from the firmware but a TPM 2.0 with PolicyAuthorizeNV.
 
-**Microsoft's keys stay enrolled** (`sbctl enroll-keys --microsoft`): graphics cards and other devices run option ROMs
-signed by Microsoft, and leaving them out can stop a laptop from showing anything at power-on. The cost is that
-Microsoft-signed bootloaders (Windows, shim) still start. With the TPM bound to Secure Boot state (#5), booting one of
-those should change what the TPM measures (PCR 7 records which certificate approved the loader), so the disk
-wouldn't unlock. #5 should confirm that in the lab.
+**PCR 4 and 11.** The firmware measures every EFI program it starts into PCR 4: Limine, then the boot image Limine
+chainloads. Limine carries the b2sum of `limine.conf` (ENABLE_ENROLL_LIMINE_CONFIG), and the menu holds the boot
+image's hash and its command line, so PCR 4 covers the command line too. PCR 11 holds the boot image's sections
+(kernel, initramfs, command line) as systemd-stub measured them. Rejected:
 
-**Order: sign, check, then enroll.** Before the keys are in the firmware, unsigned files still start, so a failed or
-interrupted `setup` leaves a laptop that boots. `setup` refuses before changing anything if the firmware holds someone
-else's keys (not in setup mode, and the platform key isn't this laptop's). Running it again is safe.
+| PCR | Why not |
+|---|---|
+| 7 (Secure Boot state) | With Secure Boot off it adds nothing an attacker can't reproduce, and a dbx update would leave the laptop asking for the recovery key. |
+| 5 (GPT, boot variables) | Unpredictable: OVMF measured an Exit Boot Services retry. |
+| 9, 12 | pcrlock's own credential ("Global credentials initrd") is measured there, after the policy is made. |
+| 0-3 | The firmware itself: every firmware update would need the recovery key. |
 
-**Signing rides on Limine's tools.** Once sbctl has keys, `limine-mkinitcpio-hook` signs what it writes: sbctl's
-mkinitcpio hook signs each boot image before Limine records its hash, and `90-limine-enroll-config` signs Limine after
-enrolling. `setup` runs `limine-update` and then checks with `sbctl verify` that Limine, the fallback and the boot
-images are signed. Updates sign through the same path (tested with a kernel reinstall).
+**What it doesn't catch.** Root on the laptop can approve different boot files (that's how updates work), as before.
+Another operating system, a live USB, a different Limine or boot image, or a changed menu don't get the key. The boot
+service approves whatever started, so if someone types the recovery key at a start from boot files someone else put on
+the ESP, those files are approved until the next start from the real ones; the recovery key is meant for IT, which
+should check why it was asked for first.
+
+**The policy follows updates through Limine's tools.** Every rebuild (a kernel update, a snapshot, which changes the
+menu and so Limine, `omarchy-refresh-limine`) runs Limine's post hooks. `96-monarchy-encryption-policy`, after the
+fallback hook, describes the new files (`lock-pe` for Limine, `lock-uki` for each boot image) as the variant
+"current", and rewrites the policy to allow "booted" (the files that started) or "current". The boot service
+(`monarchy-encryption boot`, at every start) replaces both with the files that just started. So at most two sets are
+allowed, and an update never leaves the running start unrecognised. `reassert` rewrites the policy when it no longer
+covers the files on the ESP (a change behind Limine's tools). Each rewrite is serialised with `flock`
+(limine-snapper-sync runs the hooks twice within a second).
+
+**Our own recovery PIN.** pcrlock's default recovery PIN is sealed behind the policy itself, so once a start misses
+the policy (the disk prompt, typed recovery key), the policy can never be rewritten (`Esys_PolicyOR` 0x1c4). `setup`
+makes a PIN of its own (`/var/lib/monarchy-encryption/pin`, root only, on the encrypted disk) and passes it as `$PIN`
+with `--recovery-pin=query`. It unlocks rewriting the policy, not the disk. Not in `/root`: limine-snapper-sync runs
+the hooks with `ProtectHome=yes`.
+
+**Refusing up front.** `setup` checks, before changing anything, that the TPM can hold the policy (`is-supported`) and
+that pcrlock recognises everything the firmware measured into PCR 4 and 11 at this start (`predict --strict` with the
+files on the ESP). A stock laptop starts with the busybox initramfs, which measures nothing, so systemd's own
+initramfs components (`750-enter-initrd`, `750-os-separator`) are left out when the first try fails: a match without
+them means they are absent, not unrecognised. When the boot files changed since this start (an update, Omarchy's
+first-boot setup), they can't describe it: then every record in PCR 4 and 11 must be a component pcrlock knows, a
+program the firmware started, or a boot image section (`pcrlock log --json`), which the files describe at the restart.
+Firmware that measures something else is refused, not left asking for the recovery key at every start.
 
 **The boot menu.** With the TPM unlocking the disk, changing the kernel command line at the menu (`init=/bin/sh`) would
 be a root shell. Three things close it:
 
 1. `editor_enabled: no` in `limine.conf`, which also removes the menu's "Blank Entry".
 2. `ENABLE_ENROLL_LIMINE_CONFIG=yes` in `/etc/default/limine`: Limine's tools embed the checksum of `limine.conf`
-   into the signed Limine binary, and Limine halts on a menu that doesn't match. The ESP isn't encrypted, so without
-   this anyone with the laptop could edit the menu file directly. Limine's tools read this setting only from
+   into the Limine binary, and Limine halts on a menu that doesn't match. The ESP isn't encrypted, so without this
+   anyone with the laptop could edit the menu file directly. Limine's tools read this setting only from
    `/etc/default/limine`, never from a drop-in, so this one line is added to a file Omarchy's installer wrote
-   (marked).
+   (marked). Limine is in PCR 4, so a menu changed and re-enrolled by someone else is a different Limine too.
 3. The firmware's fallback loader (`EFI/BOOT/BOOTX64.EFI`) becomes the enrolled Limine. Limine's tools copy a plain
    Limine there on every update, and choosing it from the firmware's boot menu would boot a changed menu. A Limine
    post hook, `/etc/boot/hooks/post.d/95-monarchy-encryption-fallback`, runs after their enroll hook and replaces it.
 
 **Not covered here:**
 
-- Snapshots taken before `setup` can't be started from the boot menu any more: their boot images are unsigned, and
-  signing them would break the hash limine-snapper-sync pinned (findings.md). `setup` says how many there are. They
-  can still be restored from the running system, and every snapshot taken afterwards starts. Fleet laptops run
-  `setup` right after the install, before there are any snapshots. Making old ones bootable again is #19.
 - `omarchy-refresh-limine` replaces `limine.conf` with Omarchy's default, so the editor comes back on: handled by the
   editor hook (below, "Staying correct across updates").
-- The firmware's own setup screen (F2, Del, or `S` in Limine's menu) can turn Secure Boot off unless it has a password.
-  Software can't set one. With #5's policy, Secure Boot off means the TPM doesn't unlock the disk, so this isn't a way
-  in, but a firmware password is still worth recommending.
-- Anything that edits `limine.conf` without Limine's tools now stops the laptop from starting until the menu is
-  re-enrolled. Omarchy's migrations in 4.0.5 only go through the tools. Factory reset is the exception (see #9).
+- Anything that edits `limine.conf` without Limine's tools stops the laptop from starting until the menu is
+  re-enrolled. Omarchy's migrations in 4.0.5 only go through the tools.
 
 ## The recovery key
 
@@ -135,61 +158,58 @@ the TPM slot are never touched here (removing the passphrase belongs to #5, behi
 
 ## TPM unlock
 
-**Decision:** the TPM opens the disk at boot, bound to **PCR 7** only. `setup` gets there in **one run and a restart**
-with nothing typed, and removes the installer's passphrase once the TPM opens the disk and the recovery key has been
-handed over. Issue #5, October 2026, systemd 262 and swtpm in the lab; the restart with nothing typed: #37, October
-2026. The choices were the owner's.
+**Decision:** the TPM opens the disk at boot through the measured-boot policy (above). `setup` gets there in **one
+run and a restart** with nothing typed, and removes the installer's passphrase once the TPM opens the disk and the
+recovery key has been handed over. Issue #5, October 2026, systemd 262 and swtpm in the lab; the restart with nothing
+typed: #37; the policy: #26. The choices were the owner's.
 
-**PCR 7 only.** It records the Secure Boot state: whether it's on, and which keys are enrolled (PK, KEK, db, dbx).
-Kernel and Omarchy updates don't change it, so nothing has to be re-enrolled after one (tested). Secure Boot off,
-another platform key, or a changed db all change it, and the disk asks for the recovery key (tested). Since only boot
-files signed with this laptop's key start, and the menu can't be edited (above), PCR 7 stands for "this laptop's
-signed software". What it doesn't catch: a boot image this laptop signed itself with a changed command line or
-initramfs, which needs root on the laptop first. Binding to the measured boot image too (a signed PCR 11 policy) would
-close that, at the cost of producing a signed policy on every boot image rebuild through Limine's tools: a later issue.
+**The keyslot points at the policy, not at PCR values.** `systemd-cryptenroll --tpm2-pcrlock=/var/lib/systemd/pcrlock.json`
+binds the slot to the NV index (`tpm2_pcrlock: true`, `tpm2-pcrs: []`), so an update rewrites the policy and never
+touches the disk's keyslots. pcrlock also writes `/boot/loader/credentials/pcrlock.<machine-id>.cred`, which
+systemd-stub passes to the initramfs (works with Limine), so it can unlock before `/var` is mounted.
 
-**A restart.** Secure Boot takes effect at the next start, and PCR 7 is measured by the firmware at boot, so
-enrolling in the run that enrolls the keys would bind the disk to "Secure Boot off". Predicting the value
-(systemd-pcrlock) was rejected: a wrong guess on some firmware is a laptop that never unlocks by itself.
+**A restart.** The policy describes what the firmware measured at a start, and a stock laptop's start has the busybox
+initramfs: the policy can only be made once the laptop starts with the systemd initramfs `setup` puts in.
 
-1. `setup` (Secure Boot not on yet): the systemd initramfs, Secure Boot, a **one-time unlock** (below), then a
-   recovery key, made **last** so the output that carries it is the final one (`setup --json`: `{"done": false,
-   "recovery_key": "…"}`). It links `monarchy-encryption-finish.service` into `multi-user.target.wants` and ends with
+1. `setup`: the checks above, the systemd initramfs, the boot menu, a **one-time unlock** (below), then a recovery
+   key, made **last** so the output that carries it is the final one (`setup --json`: `{"done": false,
+   "recovery_key": "…"}`). It links `monarchy-encryption-boot.service` into `multi-user.target.wants` and ends with
    "restart".
-2. At the restart (Secure Boot on with this laptop's keys), the service runs `finish`: it enrolls the TPM
-   (`--tpm2-device=auto --tpm2-pcrs=7`, unlocked by the one-time unlock), proves it opens the disk through the same
-   token the initramfs uses (`cryptsetup open --test-passphrase --token-only --token-id=N`), removes the passphrase,
-   then the one-time unlock and the service's link. No change to `/etc/crypttab`: systemd-cryptsetup tries the TPM
-   tokens by itself.
+2. At the restart, the service runs `boot`: it makes the policy from the files that started, enrolls the TPM
+   (unlocked by the one-time unlock), proves it opens the disk through the same token the initramfs uses
+   (`cryptsetup open --test-passphrase --token-only --token-id=N`), removes the passphrase, then the one-time unlock.
+   At every later start, `boot` only pins the policy to the files that started. No change to `/etc/crypttab`:
+   systemd-cryptsetup tries the TPM tokens by itself.
 
-**The one-time unlock** is a TPM slot bound to no PCRs (`--tpm2-pcrs=`), so the restart needs nobody at the keyboard
-(#37). Until that start, anyone holding the laptop can start it and get in: one start with the disk effectively
-unencrypted, the same exposure as Omarchy's own provisioning window. Chosen over the alternatives:
+**The one-time unlock** is a TPM slot bound to nothing (`--tpm2-pcrs= --tpm2-pcrlock=`: without the second,
+`systemd-cryptenroll` picks up `pcrlock.json` by itself), so the restart needs nobody at the keyboard (#37). Until that
+start, anyone holding the laptop can start it and get in: one start with the disk effectively unencrypted, the same
+exposure as Omarchy's own provisioning window. Chosen over the alternatives:
 
 | Option | Why not |
 |---|---|
-| Predict PCR 7 for that one start (systemd-pcrlock) | A wrong guess is a passphrase prompt, which is the problem being solved; the prediction is the part most likely to differ on real firmware. |
+| Predict the policy for that start from the new boot files | The busybox start's record says nothing about the systemd initramfs; a wrong guess is a passphrase prompt, which is the problem being solved. |
 | A key file in the boot image (Omarchy's provisioning) | The same exposure, but the key sits in plain text on the ESP: readable from the disk alone, and it can outlive its deletion on flash. The TPM's secret never leaves the TPM, and the disk alone stays locked. |
 | A person types the passphrase at the restart (0.1.0) | No unattended rollout. |
 
-`finish` removes the one-time unlock **whatever happens** (an EXIT trap): the TPM enrolment failing, or the laptop
-starting without Secure Boot (some firmwares need it turned on in their settings), leaves the passphrase and the
-recovery key, and the disk asks from the next start. Not leaving it is the point: a laptop that never finishes would
-otherwise open by itself indefinitely. `status` reports it (`disk.one_time_unlock`, part of `protected`), and
-`setup` run by hand after the restart does the same as `finish`. TPM tokens are told apart by their PCRs: `tpm_enrolled`
-and `tpm_unlocks` look only at tokens bound to PCRs, the one-time unlock is the one with none.
+`boot` removes the one-time unlock **whatever happens** (an EXIT trap): the policy or the TPM enrolment failing leaves
+the passphrase and the recovery key, and the disk asks from the next start. Not leaving it is the point: a laptop that
+never finishes would otherwise open by itself indefinitely. `status` reports it (`disk.one_time_unlock`, part of
+`protected`), and `setup` run by hand after the restart does the same as `boot`. TPM tokens are told apart by what
+they're bound to: `tpm_enrolled` and `tpm_unlocks` look only at tokens bound to the policy or to PCRs, the one-time
+unlock is the one bound to neither.
 
 `setup` reads the recovery key or passphrase (terminal, or one line on stdin) and checks it opens the disk **before
-anything is changed**. `finish` needs none: the one-time unlock opens the disk. A finished laptop needs no input at all:
+anything is changed**. `boot` needs none: the one-time unlock opens the disk. A finished laptop needs no input at all:
 `setup` then changes nothing.
 
 **The passphrase goes** once the TPM opens the disk and the recovery key has been handed over. Printing it counts as
 handing it over (the owner's call, #37): an MDM sends it to its endpoint, a person stores it; asking the caller to
 send it back would cost a step, and the unattended restart is the point. The one-time unlock is the evidence: it's
-there only after `setup` printed the key (or one existed before). Without a recovery key, `finish` keeps the
+there only after `setup` printed the key (or one existed before). Without a recovery key, `boot` keeps the
 passphrase. Run by hand, `setup` removes the passphrase only when given the recovery key; given the passphrase, it
 keeps it and says how to finish. The TPM is proven before the passphrase slots are wiped and again after. Only
-keyslots with no token are wiped: the installer's passphrase, or one added with `cryptsetup`. `finish` never creates a
+keyslots with no token are wiped: the installer's passphrase, or one added with `cryptsetup`. `boot` never creates a
 recovery key: its output goes to the journal, and there's nobody to hand it to.
 
 **A TPM slot that no longer matches** (a firmware update, or the keys changed) leaves the disk asking at boot. Running
@@ -201,8 +221,10 @@ one is removed. A new enrollment that doesn't open the disk is removed again.
 **Decision:** two hooks, and a `reassert` command that needs no key. Issue #7, October 2026, Omarchy 4.0.5 in the lab.
 
 What can undo `setup` was found by trying it on a laptop that's fully set up (findings.md, "Updates after setup"):
-kernel updates and Omarchy's migrations stay correct on their own; a limine upgrade leaves Limine unsigned (Omarchy's
-`99-omarchy-limine` pacman hook); `omarchy-refresh-limine` brings the boot menu editor back.
+kernel updates and Omarchy's migrations stay correct on their own; a limine upgrade leaves a plain Limine with no
+enrolled menu checksum (Omarchy's `99-omarchy-limine` pacman hook); `omarchy-refresh-limine` brings the boot menu
+editor back. Every boot file rebuild also needs the TPM policy rewritten: the policy hook (above, "Measured boot")
+runs after Limine's own.
 
 1. **A Limine post hook, `/etc/boot/hooks/post.d/85-monarchy-encryption-editor`**, linked by `setup` next to the
    fallback hook. Limine's tools run it before their own `90-limine-enroll-config` whenever they rewrite the menu, so
@@ -210,11 +232,11 @@ kernel updates and Omarchy's migrations stay correct on their own; a limine upgr
    and nothing has to notice the change afterwards.
 2. **A pacman hook, `zz-monarchy-encryption.hook`**, sorted after every Limine and Omarchy hook. It runs `reassert`
    after transactions that touch the kernel, initramfs hooks, firmware, systemd, cryptsetup, Limine, mkinitcpio,
-   sbctl, Omarchy's packages or this one. Upgrading this package therefore also brings laptops set up by an older
+   Omarchy's packages or this one. Upgrading this package therefore also brings laptops set up by an older
    version up to date (new hooks get linked).
 3. **`reassert`** runs `setup`'s parts that need no key and no question: the initramfs drop-in and crypttab line,
-   the menu settings, both Limine hooks, and a rebuild and re-sign when anything isn't signed and protected. It never
-   touches Secure Boot keys, keyslots or the TPM. A TPM that no longer opens the disk (a firmware update) is reported,
+   the menu settings, the Limine hooks, a rebuild when the menu isn't protected, and the TPM policy rewritten when it
+   doesn't cover the files on the ESP. It never touches keyslots. A TPM that no longer opens the disk is reported,
    since re-enrolling needs the recovery key (`setup`). Before `setup` it does nothing.
 
 **No Omarchy post-update hook** (monarchy-identity has one). `omarchy update` installs packages through pacman, so the
@@ -235,7 +257,7 @@ provisioning and factory reset".
 
 1. Unattended install with a disk passphrase the MDM generates for this laptop, separate from the user's password.
 2. `setup` with that passphrase on stdin; the MDM stores the recovery key it returns.
-3. Restart, with nothing typed: TPM unlock, the passphrase removed (`finish`, above).
+3. Restart, with nothing typed: TPM unlock, the passphrase removed (`boot`, above).
 4. `monarchy-identity enroll`: directory sign-in.
 
 No lasting secret crosses the MDM channel except the recovery key, which the MDM is meant to hold. No step needs a
@@ -257,22 +279,20 @@ the MDM, never the disk. What would make it work is upstream (#32): a systemd-co
 `/etc/crypttab`, or `rd.luks.key=`), a re-key that removes only the slot it staged, and a hook after user creation
 where `setup` and `monarchy-identity enroll` run with the staged key file as their secret.
 
-**Factory reset: `release` first.** `omarchy-system-factory-reset` rebuilds the boot files from the install-time
-`@factory` snapshot, which has none of this laptop's keys, so they come out unsigned and, with the laptop's keys in the
-firmware, it doesn't start. It also asks for the disk passphrase, which `setup` removed. Signing inside the reset
-would put this laptop's private key into the snapshot handed to the next owner (rejected), and wrapping Omarchy's
-reset in a command of ours was rejected by the owner as more machinery than it's worth. Instead, `release` (#31) turns
+**Factory reset: `release` first.** `omarchy-system-factory-reset` asks for the disk passphrase, which `setup` removed,
+and rebuilds the boot files from the install-time `@factory` snapshot, which the TPM policy doesn't cover. Wrapping
+Omarchy's reset in a command of ours was rejected by the owner as more machinery than it's worth. Instead, `release` (#31) turns
 the laptop back into a plain Omarchy one, and the admin then uses Omarchy's own reset:
 
 1. Ask for a new disk passphrase (twice on a terminal, or one line on stdin) and add it, unlocked by the TPM
    (`cryptsetup luksAddKey --token-only --token-type systemd-tpm2`, the new key through a pipe), or by the recovery
    key when the TPM no longer opens the disk. Skipped when the disk still has a passphrase.
 2. Prove it opens the disk, then remove the TPM slot. The recovery key stays (the reset's re-key removes it).
-3. `sbctl reset`: the firmware is in setup mode, Secure Boot off from the next start. Remove this laptop's sbctl keys.
-4. Unlink our Limine hooks; `reassert` finds no keys and does nothing.
+3. Remove the TPM policy (`remove-policy` frees its NV index), our boot file descriptions and the recovery PIN.
+4. Unlink the boot service and our Limine hooks; `reassert` finds setup hasn't run and does nothing.
 
 The systemd initramfs, the crypttab line and the menu settings stay: they work with a passphrase, and a reset
-replaces them anyway. `setup` sets a released laptop up again (the firmware is already in setup mode). It is also how
+replaces them anyway. `setup` sets a released laptop up again. It is also how
 a laptop leaves management without a reset. In the lab (`test/vm/e2e-release.sh`): release, restart with the new
 passphrase, Omarchy's reset (it takes the new passphrase), first-boot setup, then `setup` back to protected.
 
@@ -280,7 +300,7 @@ passphrase, Omarchy's reset (it takes the new passphrase), first-boot setup, the
 
 - `setup` run while provisioning is pending: a disk that asks for a passphrase nobody knows; the recovery key opens
   it. Prevented by #30.
-- Factory reset without `release`: a laptop the firmware won't start. Fix: clear Secure Boot keys (or turn Secure
-  Boot off) in the firmware settings; it then starts with the reset's unsigned files.
+- Factory reset without `release`: the reset asks for a disk passphrase there no longer is, and its boot files aren't
+  in the TPM policy, so the next start asks too. The recovery key opens the disk at both prompts (not tested).
 - Provisioning's re-key after `release` and a reset (as designed): the recovery slot is gone and the owner's password
   opens the disk. Expected; `setup` takes it back.

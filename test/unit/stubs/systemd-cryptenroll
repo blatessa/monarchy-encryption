@@ -1,11 +1,11 @@
 #!/bin/bash
 # Stand-in for systemd-cryptenroll 262 against the disk's keyslots in $STUB_STATE/keyslots ("SLOT TYPE SECRET" per
 # line; the sandbox starts with the passphrase in slot 0), shared with the cryptsetup stub. Output as observed in the
-# lab (docs/dev/findings.md, "Recovery keys"). STUB_TPM_UNLOCK_FAIL=1: the TPM won't unlock (PCRs changed).
+# lab (docs/dev/findings.md, "Recovery keys"). STUB_TPM_UNLOCK_FAIL=1: the TPM won't unlock (the boot files changed).
 # STUB_KEY_UNREADABLE=1: a recovery key is enrolled but its output doesn't carry it.
 echo "systemd-cryptenroll $*" >> "$STUB_LOG"
 ks=$STUB_STATE/keyslots
-unlock=prompt enroll="" wipe="" pcrs=7   # systemd's default PCR set is 7 too
+unlock=prompt enroll="" wipe="" pcrs=7 pcrlock=""   # systemd's default PCR set is 7 too
 for a in "$@"; do
   case $a in
     --unlock-key-file=*) unlock=key:${a#*=} ;;
@@ -13,6 +13,7 @@ for a in "$@"; do
     --recovery-key) enroll=recovery ;;
     --tpm2-device=*) enroll=tpm2 ;;
     --tpm2-pcrs=*) pcrs=${a#*=} ;;
+    --tpm2-pcrlock=*) pcrlock=${a#*=} ;;   # an empty one turns off picking up pcrlock.json by itself
     --wipe-slot=*) wipe=${a#*=} ;;
   esac
 done
@@ -46,6 +47,10 @@ if [[ $enroll == recovery ]]; then
   printf '\nPlease save this secret recovery key at a secure location.\n' >&2
   echo "New recovery key enrolled as key slot $slot." >&2
 else
+  if [[ -n $pcrlock ]]; then   # bound to the policy instead of PCRs
+    [[ -f $pcrlock ]] || { echo "Failed to read pcrlock policy '$pcrlock': No such file or directory" >&2; exit 1; }
+    pcrs="" && : > "$STUB_STATE/tpm2-pcrlock-$slot"
+  fi
   echo "$slot tpm2 -" >> "$ks"
   echo "$pcrs" > "$STUB_STATE/tpm2-pcrs-$slot"   # the token's tpm2-pcrs, for cryptsetup luksDump
   echo "New TPM2 token enrolled as key slot $slot." >&2

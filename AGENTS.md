@@ -4,28 +4,29 @@ Guidance for coding agents (and humans) working in this repo. Keep it short and 
 
 ## What this is
 `monarchy-encryption` makes an Omarchy (Arch + Hyprland, Limine, LUKS on btrfs) laptop unlock its disk with the TPM,
-protected by Secure Boot with the laptop's own keys, plus a per-laptop recovery key. It's a single-purpose
-utility like [monarchy-identity](https://github.com/blatessa/monarchy-identity): called by a person or an MDM, not a
-platform. Status: 0.1.0 (October 2026), tested in the lab only. `setup` (one run, then a restart with nothing typed)
-and `recovery-key` take a laptop to TPM unlock bound to Secure Boot, with a recovery key and no passphrase; `status
---json` reports whether it is, `reassert` keeps it that way across updates, and `release` undoes it. The lab's hibernation is unreliable (#21). Public
+only for the laptop's own boot files (measured boot, nothing changed in the firmware), plus a per-laptop recovery key.
+It's a single-purpose utility like [monarchy-identity](https://github.com/blatessa/monarchy-identity): called by a
+person or an MDM, not a platform. Status: 0.2.0 (October 2026), tested in the lab and on one laptop. `setup` (one run, then a restart
+with nothing typed) and `recovery-key` take a laptop to TPM unlock bound to its measured boot files, with a recovery key
+and no passphrase; `status --json` reports whether it is, `reassert` keeps it that way across updates, and `release`
+undoes it. The lab's hibernation is unreliable (#21). Public
 docs are the MkDocs site in `docs/` (nav in `mkdocs.yml`), served at https://docs.monarchy.run/monarchy-encryption/. Read
 `docs/dev/research.md` first, then `docs/dev/architecture.md` (decisions), `docs/dev/findings.md` (traps) and
 `docs/dev/testing.md` (the two test layers and the lab).
 
 ## Hard rules
-- **Never test on the host machine.** A bad initramfs, Secure Boot or keyslot change can make a disk unbootable or
-  unrecoverable. Everything runs in the QEMU lab (OVMF with Secure Boot + swtpm), built by issue "Lab".
+- **Never test on the host machine.** A bad initramfs, boot file or keyslot change can make a disk unbootable or
+  unrecoverable. Everything runs in the QEMU lab (OVMF + swtpm), built by issue "Lab".
 - **Never remove the last way into a disk.** Before removing a passphrase or keyslot, prove that another keyslot
   (recovery key or TPM) opens the volume (`cryptsetup open --test-passphrase`). This is correctness, not an undo feature.
 - **Never write a recovery key to the laptop's disk** or logs. It's printed once, to the caller.
 - Never edit `/usr/share/omarchy/` (package-owned, overwritten by `omarchy update`). Use `/etc` drop-ins that sort
   after Omarchy's (for example `/etc/mkinitcpio.conf.d/zz-monarchy-encryption.conf`).
-- No AUR dependencies. `sbctl`, `tpm2-tss` and systemd's `systemd-cryptenroll` are in the Arch repositories.
+- No AUR dependencies. `tpm2-tss` and systemd's `systemd-cryptenroll` and `systemd-pcrlock` are in the Arch repositories.
 - Don't publish, tag, force-push or change repo settings without the owner asking.
 
 ## Scope
-In: Secure Boot keys and signing, the systemd initramfs needed for TPM unlock, TPM enrollment and its PCR policy,
+In: the boot files the TPM measures and their policy, the systemd initramfs needed for TPM unlock, TPM enrollment,
 recovery keys, locking the boot-entry editor, staying correct across updates, `status --json`.
 Out: sign-in and autologin (monarchy-identity), storing keys (the caller's job), device management (the MDM). No
 undo machinery (timers, backups, rollback). Test: would it belong in a plain "TPM disk unlock" tool?
@@ -36,8 +37,8 @@ undo machinery (timers, backups, rollback). Test: would it belong in a plain "TP
   Name things in their terms (disk, laptop, recovery key); keep PCRs, keyslots and file paths in `docs/dev/`.
 - User docs (`docs/`, outside `dev/`) are a guide in the user's terms; internals go in `docs/dev/` and only when they
   explain a decision or a trap. `mkdocs build --strict` must pass (CI checks it).
-- Tests: fast layer first (scripts against a temp root with stubbed `cryptsetup`, `sbctl`, `systemd-cryptenroll`,
-  `bootctl`), lab only for what needs real firmware, TPM or initramfs. Suites must not depend on order.
+- Tests: fast layer first (scripts against a temp root with stubbed `cryptsetup`, `systemd-cryptenroll`,
+  `systemd-pcrlock`, `bootctl`), lab only for what needs real firmware, TPM or initramfs. Suites must not depend on order.
 - A non-obvious lesson goes into `docs/dev/findings.md` (create it with the first one).
 - Small, focused commits; explain why. Branch from `main`, open a PR, let CI run.
 

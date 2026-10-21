@@ -1,6 +1,6 @@
 #!/bin/bash
 # Make the lab's clean base: an unattended, encrypted Omarchy install from the release ISO, onto a fresh disk, with
-# fresh firmware variables (Secure Boot in setup mode) and a fresh TPM. Takes about 10 minutes. Afterwards
+# fresh firmware variables and a fresh TPM. Takes about 10 minutes. Afterwards
 # images/base/ is never written again; reset.sh copies it to images/lab/. Re-run only to move to a newer ISO.
 #
 # The ISO installs itself when it finds its configurator's output files on a drive labeled cidata (see omarchy-iso's

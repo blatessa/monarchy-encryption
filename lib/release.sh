@@ -36,9 +36,8 @@ add_passphrase() {
 cmd_release() {
   [[ $# -eq 0 ]] || { usage >&2; exit 1; }
   find_root_disk || die "this laptop's disk isn't encrypted (/ is not on a LUKS volume)"
-  local tpm keys=0; tpm=$(luks_token_slots systemd-tpm2)
-  [[ -f $SBCTL_DIR/keys/PK/PK.pem ]] && keys=1
-  if [[ -z $tpm ]] && ((!keys)); then log "setup hasn't run on this laptop: nothing to release"; return 0; fi
+  local tpm; tpm=$(luks_token_slots systemd-tpm2)
+  if [[ -z $tpm ]] && ! setup_has_run && ! policy_exists; then log "setup hasn't run on this laptop: nothing to release"; return 0; fi
 
   # 1. a passphrase that opens the disk, before anything else goes
   if [[ -n $(passphrase_slots) ]]; then
@@ -56,16 +55,10 @@ cmd_release() {
     log "the TPM no longer unlocks the disk: it asks for the passphrase at start"
   fi
 
-  # 3. Secure Boot handed back: the firmware in setup mode (Secure Boot off from the next start), this laptop's keys gone
-  if own_keys_enrolled; then
-    sbctl reset >/dev/null 2>&1 || die "handing Secure Boot back failed (sbctl reset). The disk already opens with the \
-passphrase; clear the Secure Boot keys in the firmware settings instead, or run release again."
-    [[ $(efi_flag SetupMode) == true ]] || die "the firmware isn't in setup mode after sbctl reset: clear the Secure Boot keys in its settings"
-    log "Secure Boot handed back: the firmware has no keys, and Secure Boot is off from the next start"
-  fi
-  if ((keys)); then rm -rf "$SBCTL_DIR"; log "removed this laptop's Secure Boot keys"; fi
-
-  # 4. updates leave the boot files alone from now on (reassert finds no keys; the hooks are unlinked)
-  rm -f "$ETC/boot/hooks/post.d/$EDITOR_HOOK" "$ETC/boot/hooks/post.d/$FALLBACK_HOOK" "$FINISH_LINK"
+  # 3. the TPM policy gone (its NV index freed), and nothing keeps it up to date: the boot service and the Limine hooks
+  # are unlinked, and reassert finds setup hasn't run
+  policy_remove
+  rm -f "$BOOT_LINK"
+  remove_limine_hooks
   log "released: restart, and type the disk passphrase at the prompt. Omarchy's factory reset (omarchy-system-factory-reset) asks for it too; setup sets the laptop up again."
 }

@@ -1,8 +1,8 @@
 #!/bin/bash
-# Lab: setup, then a restart with nothing typed: the one-time unlock opens the disk, and finish binds the TPM to Secure
-# Boot and removes the passphrase. With Secure Boot off or a changed key database the disk prompt comes back and the
-# recovery key opens it; setup then enrolls the TPM afresh. Kernel updates: e2e-updates. Starts from the installed
-# checkpoint and leaves it finished (TPM and recovery key, no passphrase). About 8 minutes.
+# Lab: setup, then a restart with nothing typed: the one-time unlock opens the disk, and the boot service makes the TPM
+# policy, ties the disk to it and removes the passphrase. A cleared TPM brings the disk prompt back and the recovery key
+# opens it; setup then enrolls the TPM afresh. Starts from the installed checkpoint and leaves it finished (TPM and
+# recovery key, no passphrase). About 8 minutes.
 source "$(dirname "$0")/lib.sh"
 fail=0
 ok()  { printf '  PASS %s\n' "$1"; }
@@ -22,62 +22,46 @@ status_is() {
 }
 
 checkpoint installed build_installed; mkdir -p "$shots"
+boot_log() { lab_ssh_root journalctl -b -u monarchy-encryption-boot -o cat; }
 
 echo "[status on a stock install]"
-status_is false "disk.systemd_initramfs disk.tpm_unlock disk.recovery_key disk.no_passphrase secure_boot.enabled secure_boot.own_keys secure_boot.boot_files_signed boot_menu.editor_locked boot_menu.config_protected" \
+status_is false "disk.systemd_initramfs disk.tpm_unlock disk.recovery_key disk.no_passphrase boot_menu.editor_locked boot_menu.config_protected tpm_policy.current" \
   && ok "status: not protected, everything setup does is missing" || bad "status before setup"
-[[ $(lab_ssh monarchy-encryption status --json | jq -c '[.protected, .missing]') == '[false,["secure_boot.enabled"]]' ]] \
-  && ok "status as a user: not protected, from what a user can see (Secure Boot is off)" || bad "user status: $(lab_ssh monarchy-encryption status --json)"
+[[ $(lab_ssh monarchy-encryption status --json | jq -c '[.protected, .missing]') == '[null,[]]' ]] \
+  && ok "status as a user: unknown, nothing a user can see is wrong" || bad "user status: $(lab_ssh monarchy-encryption status --json)"
 
 echo "[setup]"
 j=$(setup_json "$LAB_PASSWORD"); key=$(field recovery_key "$j")
-[[ $(field done "$j") == false && $key =~ ^[a-z]{8}(-[a-z]{8}){7}$ ]] && ok "Secure Boot and a recovery key; restart needed" || bad "setup: $j"
-status_is false "disk.tpm_unlock disk.no_one_time_unlock disk.no_passphrase secure_boot.enabled" \
-  && ok "status: the TPM not bound yet, the one-time unlock and the passphrase there, Secure Boot on after the restart" || bad "status after setup"
-[[ $(lab_ssh_root monarchy-encryption status --json | jq -c '.disk | [.one_time_unlock, .tpm_enrolled, .tpm_pcrs]') == '[true,false,null]' ]] \
-  && ok "the one-time unlock is bound to no PCRs" || bad "one-time: $(lab_ssh_root cryptsetup luksDump --dump-json-metadata /dev/vda2 | jq -c .tokens)"
-tpm_opens && ok "the TPM opens the disk now (before Secure Boot is on)" || bad "the one-time unlock doesn't open the disk"
+[[ $(field done "$j") == false && $key =~ ^[a-z]{8}(-[a-z]{8}){7}$ ]] && ok "a recovery key; restart needed" || bad "setup: $j"
+status_is false "disk.tpm_unlock disk.no_one_time_unlock disk.no_passphrase tpm_policy.current" \
+  && ok "status: the TPM not bound yet, the one-time unlock and the passphrase there, no policy until the restart" || bad "status after setup"
+[[ $(lab_ssh_root cryptsetup luksDump --dump-json-metadata /dev/vda2 | jq -c '[.tokens[] | select(.type == "systemd-tpm2") | [.["tpm2-pcrs"], (.tpm2_pcrlock // false)]]') == '[[[],false]]' ]] \
+  && ok "the one-time unlock is bound to nothing" || bad "one-time: $(lab_ssh_root cryptsetup luksDump --dump-json-metadata /dev/vda2 | jq -c .tokens)"
+tpm_opens && ok "the TPM opens the disk now" || bad "the one-time unlock doesn't open the disk"
 
 echo "[the restart, with nothing typed]"
 restart_untyped && ok "the laptop starts with nothing typed" || { bad "it waited at the disk prompt"; unlock_and_wait "$LAB" 300; }
-finished && ok "finish ran at that start" || bad "finish: $(lab_ssh_root journalctl -b -u monarchy-encryption-finish -o cat)"
-[[ $(lab_ssh_root journalctl -b -u monarchy-encryption-finish -o cat) == *"setup finished"* ]] && ok "finish says it finished" \
-  || bad "finish: $(lab_ssh_root journalctl -b -u monarchy-encryption-finish -o cat)"
+finished && [[ $(boot_log) == *"setup finished"* ]] && ok "the boot service finished setup" || bad "boot: $(boot_log)"
 lab_ssh_root journalctl -o cat | grep -qF "$key" && bad "a recovery key in the journal" || ok "no recovery key in the journal"
+root_with "$key" "bash -c 'IFS= read -r k || true; grep -rqsF -- \"\$k\" /etc /root /var/lib /boot'" && bad "the recovery key is on the laptop's disk" || ok "nor on the disk (the policy's PIN isn't it)"
 status_is true "" && ok "status: protected, nothing missing" || bad "status after the restart"
 opens "$LAB_PASSWORD" && bad "the passphrase still opens the disk" || ok "the passphrase no longer opens the disk"
 opens "$key" && ok "the recovery key does" || bad "the recovery key doesn't open the disk"
 tpm_opens && ok "and the TPM does" || bad "the TPM doesn't open the disk"
-[[ $(lab_ssh_root systemd-cryptenroll /dev/vda2 | grep -c tpm2) == 1 ]] && ok "one TPM slot (the one-time unlock removed)" || bad "slots: $(lab_ssh_root systemd-cryptenroll /dev/vda2)"
-lab_ssh_root test -e /etc/systemd/system/multi-user.target.wants/monarchy-encryption-finish.service && bad "finish still enabled" || ok "finish won't run again"
-restart_untyped && ok "the next start: nothing typed, through the TPM bound to Secure Boot" || { bad "it waited at the disk prompt"; unlock_and_wait "$LAB" 300 "$key"; }
-[[ $(cryptsetup_log) != *"does not match"* ]] && ok "the TPM opened the disk" || bad "cryptsetup: $(cryptsetup_log)"
+[[ $(lab_ssh_root cryptsetup luksDump --dump-json-metadata /dev/vda2 | jq -c '[.tokens[] | select(.type == "systemd-tpm2") | [.["tpm2-pcrs"], .tpm2_pcrlock]]') == '[[[],true]]' ]] \
+  && ok "one TPM slot, bound to the policy (the one-time unlock removed)" || bad "tokens: $(lab_ssh_root cryptsetup luksDump --dump-json-metadata /dev/vda2 | jq -c .tokens)"
+restart_untyped && ok "the next start: nothing typed, through the policy" || { bad "it waited at the disk prompt"; unlock_and_wait "$LAB" 300 "$key"; }
+[[ $(cryptsetup_log) != *"does not match"* && $(boot_log) != *"setup finished"* ]] && ok "the TPM opened the disk; the boot service only kept the policy" || bad "cryptsetup: $(cryptsetup_log) boot: $(boot_log)"
 j=$(setup_json ""); [[ $(field done "$j") == true && $(field passphrase "$j") == none ]] && ok "setup again: done, nothing asked" || bad "run 4: $j"
 status_is true "" && ok "status: protected, nothing missing" || bad "status when done"
-[[ $(lab_ssh_root monarchy-encryption status --json | jq -c .disk.tpm_pcrs) == "[7]" ]] && ok "status: the TPM is bound to PCR 7" || bad "pcrs"
 
-
-echo "[Secure Boot off]"
-stop_vm "$LAB"
-OVMF_CODE=/usr/share/edk2/x64/OVMF_CODE.4m.fd start_vm "$LAB"   # the same firmware variables and TPM, no Secure Boot
-if up_untyped 120; then bad "the disk opened with Secure Boot off"; else
-  ok "with Secure Boot off the laptop waits at the disk prompt"; screenshot "$LAB" "$shots/sb-off.png"
+echo "[a cleared TPM]"
+stop_vm "$LAB"; rm -rf "$LAB/tpm"; cp -r --reflink=auto "$BASE/tpm" "$LAB/tpm"; start_vm "$LAB"
+if up_untyped 90; then bad "the disk opened with a cleared TPM"; else
+  ok "the laptop waits at the disk prompt"; screenshot "$LAB" "$shots/cleared.png"
   unlock_and_wait "$LAB" 300 "$key" && ok "the recovery key opens it"
-  status_is false "disk.tpm_unlock secure_boot.enabled" && ok "status: not protected: Secure Boot off, and the TPM doesn't open the disk" || bad "status with Secure Boot off"
 fi
-stop_vm "$LAB"; start_vm "$LAB"
-up_untyped 120 && ok "Secure Boot back on: the TPM opens the disk again" || { bad "still a prompt with Secure Boot back on"; unlock_and_wait "$LAB" 300 "$key"; }
-
-echo "[a changed key database]"
-lab_ssh_root bash -c 'v=/sys/firmware/efi/efivars; chattr -i $v/PK-* $v/KEK-* $v/db-*; mkdir -p /var/lib/sbctl/keys/custom/db
-  openssl req -x509 -newkey rsa:2048 -nodes -subj "/CN=lab extra db" -days 30 -keyout /dev/null -out /var/lib/sbctl/keys/custom/db/extra.pem 2>/dev/null
-  sbctl enroll-keys --append --partial db --custom >/dev/null' && ok "a certificate appended to the firmware's db" || bad "couldn't change db"
-if restart_untyped; then bad "the disk opened with a changed db"; else
-  ok "the laptop waits at the disk prompt"
-  unlock_and_wait "$LAB" 300 "$key" && ok "the recovery key opens it"
-  [[ $(cryptsetup_log) == *"TPM policy does not match"* ]] && ok "systemd says the TPM policy doesn't match" || bad "cryptsetup: $(cryptsetup_log)"
-fi
-status_is false "disk.tpm_unlock" && ok "status: the TPM no longer opens the disk, and nothing else is wrong" || bad "status after the db change"
+status_is false "disk.tpm_unlock" && ok "status: the TPM no longer opens the disk, and nothing else is wrong" || bad "status with a cleared TPM"
 j=$(setup_json ""); [[ -z $(field done "$j") || $(field done "$j") == null ]] && ok "setup asks for the recovery key (the TPM no longer opens the disk)" || bad "no-key run: $j"
 j=$(setup_json "$key"); [[ $(field done "$j") == true ]] && tpm_opens && ok "setup with the recovery key enrolls the TPM afresh" || bad "re-enroll: $j"
 [[ $(lab_ssh_root systemd-cryptenroll /dev/vda2 | grep -c tpm2) == 1 ]] && ok "one TPM slot (the stale one removed)" || bad "slots: $(lab_ssh_root systemd-cryptenroll /dev/vda2)"

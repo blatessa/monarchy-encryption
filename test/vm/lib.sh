@@ -1,6 +1,6 @@
 # Shared lab helpers: paths, the VM's firmware/TPM/disk, QMP keystrokes, ssh. Sourced by the test/vm scripts.
-# The lab is an encrypted Omarchy install under QEMU with Secure Boot firmware (in setup mode: no keys yet) and a
-# software TPM. `images/base/` is the clean install and never changes after test/vm/install.sh; `images/lab/` is the
+# The lab is an encrypted Omarchy install under QEMU with UEFI firmware (Secure Boot off, no keys: setup leaves the
+# firmware's keys alone, so their absence changes nothing) and a software TPM. `images/base/` is the clean install and never changes after test/vm/install.sh; `images/lab/` is the
 # working copy (a disk overlay plus its own copies of the firmware variables and TPM state), which reset.sh recreates.
 # LAB_NAME and LAB_SSH_PORT give a VM of its own (images/$LAB_NAME), so suites can run side by side (run-suites.sh).
 set -euo pipefail
@@ -21,7 +21,7 @@ SSH_PORT="${LAB_SSH_PORT:-2223}"   # monarchy-identity's lab uses 2222
 MEMORY="${LAB_MEMORY:-8192}"
 DISK_SIZE=40G
 
-OVMF_CODE=/usr/share/edk2/x64/OVMF_CODE.secboot.4m.fd   # needs SMM; its variables start empty, i.e. setup mode
+OVMF_CODE=/usr/share/edk2/x64/OVMF_CODE.secboot.4m.fd   # needs SMM; its variables start empty (no keys, Secure Boot off)
 OVMF_VARS_TEMPLATE=/usr/share/edk2/x64/OVMF_VARS.4m.fd
 
 log() { printf '[lab] %s\n' "$*" >&2; }
@@ -206,7 +206,7 @@ build_installed() {
   CHECKPOINT_UNLOCK=$LAB_PASSWORD
 }
 
-# finished: setup's finish, run at the start after setup, is done (the one-time unlock is gone); 1 after 120 s
+# finished: the boot service finished setup at the start after it (the one-time unlock is gone); 1 after 120 s
 finished() {
   local i; for i in $(seq 60); do
     [[ $(lab_ssh_root monarchy-encryption status --json 2>/dev/null | jq -r .disk.one_time_unlock) == false ]] && return 0; sleep 2

@@ -6,5 +6,5 @@
 set -euo pipefail
 lib="$(dirname "$(readlink -f "$0")")/../lib"
 source "$lib/common.sh"
-source "$lib/secureboot.sh"
+source "$lib/boot.sh"
 lock_editor

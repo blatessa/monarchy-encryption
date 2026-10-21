@@ -1,9 +1,9 @@
 # Maintainer: Monarchy contributors
 pkgbase=monarchy-encryption
 pkgname=(monarchy-encryption)
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
-pkgdesc='TPM disk unlock for Omarchy, protected by Secure Boot, with a recovery key'
+pkgdesc="TPM disk unlock for Omarchy, tied to the laptop's own boot files, with a recovery key"
 arch=(any)
 url='https://docs.monarchy.run/monarchy-encryption/'
 license=('MIT')
@@ -18,17 +18,18 @@ sha256sums=('SKIP')
 package_monarchy-encryption() {
   local _root="$srcdir/$pkgbase-$pkgver"
   # Arch repositories, no AUR. limine-mkinitcpio-hook (limine-update) comes from Omarchy's repository, like Omarchy.
-  depends=(bash sbctl tpm2-tss systemd cryptsetup jq openssl limine-mkinitcpio-hook)
+  depends=(bash tpm2-tss systemd cryptsetup jq limine-mkinitcpio-hook)
 
   install -Dm755 "$_root/bin/monarchy-encryption" "$pkgdir/usr/bin/monarchy-encryption"
-  install -Dm644 -t "$pkgdir/usr/share/monarchy-encryption/lib" "$_root/lib/"{common,secureboot,initramfs,recoverykey,tpm,release}.sh
+  install -Dm644 -t "$pkgdir/usr/share/monarchy-encryption/lib" "$_root/lib/"{common,boot,pcrlock,initramfs,recoverykey,tpm,release}.sh
   # copied by setup to /etc/mkinitcpio.conf.d/
   install -Dm644 "$_root/data/zz-monarchy-encryption.conf" "$pkgdir/usr/share/monarchy-encryption/data/zz-monarchy-encryption.conf"
   # linked by setup into /etc/boot/hooks/post.d (Limine's hook directory)
   install -Dm755 "$_root/hooks/limine-fallback" "$pkgdir/usr/share/monarchy-encryption/hooks/limine-fallback"
   install -Dm755 "$_root/hooks/limine-editor" "$pkgdir/usr/share/monarchy-encryption/hooks/limine-editor"
-  # linked by setup into /etc/systemd/system/multi-user.target.wants, for the restart after it
-  install -Dm644 "$_root/packaging/monarchy-encryption-finish.service" "$pkgdir/usr/lib/systemd/system/monarchy-encryption-finish.service"
+  install -Dm755 "$_root/hooks/limine-policy" "$pkgdir/usr/share/monarchy-encryption/hooks/limine-policy"
+  # linked by setup into /etc/systemd/system/multi-user.target.wants: runs at every start
+  install -Dm644 "$_root/packaging/monarchy-encryption-boot.service" "$pkgdir/usr/lib/systemd/system/monarchy-encryption-boot.service"
   install -Dm644 "$_root/packaging/monarchy-encryption.hook" "$pkgdir/usr/share/libalpm/hooks/zz-monarchy-encryption.hook"
   install -Dm644 "$_root/LICENSE" "$pkgdir/usr/share/licenses/monarchy-encryption/LICENSE"
   # documentation sources (the published site is built from these with mkdocs)

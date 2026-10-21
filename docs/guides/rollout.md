@@ -11,10 +11,9 @@ disk by itself, so do it where the laptops are prepared, before they're handed o
    `user_credentials.json` and in `disk_encryption` in `user_configuration.json`). Don't use Omarchy's "install for a
    later owner" mode: its first-boot setup re-keys the disk and removes this tool's keys
    ([status and limits](../status.md)).
-2. **Clear the firmware's Secure Boot keys** (setup mode). Many fleet laptops can be ordered or configured that way.
-3. **Update, then install the package**: `omarchy update` (a fresh install has no package lists yet), then `pacman -U`
+2. **Update, then install the package**: `omarchy update` (a fresh install has no package lists yet), then `pacman -U`
    the release file, as in [Getting started](../getting-started.md).
-4. **Set up**, with the disk passphrase. Store the recovery key it returns: it's the only copy, and once the laptop
+3. **Set up**, with the disk passphrase. Store the recovery key it returns: it's the only copy, and once the laptop
    has restarted, the only way into the disk besides the TPM.
 
     ```bash
@@ -22,11 +21,12 @@ disk by itself, so do it where the laptops are prepared, before they're handed o
     # {"schema":1,"done":false,"recovery_key":"…","passphrase":"kept"}
     ```
 
-5. **Restart.** Nothing to type: as the laptop starts, it ties the disk to the TPM and removes the disk passphrase.
+4. **Restart.** Nothing to type: as the laptop starts, it ties the disk to the TPM and removes the disk passphrase.
    `status --json` then says `"protected": true`.
-6. **Directory sign-in** with [monarchy-identity](https://docs.monarchy.run/monarchy-identity/guides/automation/).
+5. **Directory sign-in** with [monarchy-identity](https://docs.monarchy.run/monarchy-identity/guides/automation/).
 
-`"done": false` means "restart the laptop". Running `setup` on a laptop that's done changes nothing and needs no input,
+Nothing in the flow touches the firmware settings: the laptops can stay as they were shipped. `"done": false` means
+"restart the laptop". Running `setup` on a laptop that's done changes nothing and needs no input,
 so an MDM can run it on every check-in.
 
 ## Checking a laptop

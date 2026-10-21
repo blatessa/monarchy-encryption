@@ -54,12 +54,10 @@ over ssh needs `OMARCHY_PATH=/usr/share/omarchy` (the desktop session sets it), 
 Omarchy's sudoers files, and `Defaults verifypw=any` (its stay-awake step runs `sudo -v`). Even with `-y`, it then
 waits at the orphan-packages step; packages, migrations and post-update hooks have run by then.
 
-## Limine, Secure Boot and the boot menu
+## Limine and the boot menu
 
-Seen: Omarchy 4.0.5, limine 12.9.3, limine-mkinitcpio-hook 1.40.0, sbctl 0.18, in the lab; issue #4.
+Seen: Omarchy 4.0.5, limine 12.9.3, limine-mkinitcpio-hook 1.40.0, in the lab; issue #4.
 
-- Limine's tools sign with sbctl once `sbctl setup --print-state --json` says `"installed": true`, which is true once
-  `sbctl create-keys` has run. Before that the output is empty and nothing is signed.
 - `ENABLE_ENROLL_LIMINE_CONFIG` is read only from `/etc/default/limine`. `limine-common-functions` clears it after
   loading the drop-ins. The enrolled checksum is the BLAKE2B of `limine.conf`, stored in the binary as hex text, so
   `grep -aF "$(b2sum limine.conf | cut -d' ' -f1)" limine_x64.efi` tells whether the current menu is the enrolled one.
@@ -72,18 +70,11 @@ Seen: Omarchy 4.0.5, limine 12.9.3, limine-mkinitcpio-hook 1.40.0, sbctl 0.18, i
 - Omarchy's `limine.conf` has `hash_mismatch_panic: no`, but once the config is enrolled Limine enforces the hashes
   anyway: a boot image whose BLAKE2B doesn't match its `path: …#hash` gives `PANIC: Blake2b hash for URI … does not
   match!`, System halted.
-- Snapshot boot entries start a copy of the boot image from when the snapshot was taken
-  (`<esp>/<machine-id>/limine_history/…efi_sha256_…`), pinned by hash both in `limine.conf` and in
-  limine-snapper-sync's `snapshots.json`, which it regenerates the entries from. A copy from before Secure Boot is
-  unsigned: the firmware refuses it (`PANIC: efi: LoadImage failure (0x800000000000000F)`). Signing it changes its
-  hash, and Limine refuses that instead. `sbctl verify` lists these files although their names don't end in `.efi`.
-  Snapshots taken after the keys exist copy the signed image and start fine.
-- The firmware variables (SecureBoot, SetupMode, PK, KEK) are world-readable. sbctl's keys
-  (`/var/lib/sbctl/keys/*/*.pem`) and the ESP (FAT, `umask=0077`) are root-only. `sbctl list-enrolled-keys` names keys
-  only by subject, and sbctl's platform key is always "Platform Key", so whether the firmware's PK is this laptop's is
-  answered by finding the DER of `PK.pem` in the PK variable.
-- An unsigned EFI program set as `BootNext`: OVMF logs `Access Denied -- rejected probably by Secure Boot`, clears
-  BootNext and starts the next entry (Limine).
+- Snapshot boot entries start the boot image as it was when the snapshot was taken, pinned by hash both in
+  `limine.conf` and in limine-snapper-sync's `snapshots.json`. While it's the current one, the entry uses the same file
+  (`EFI/Linux/…`) with the snapshot's command line from the menu; once a new boot image is built, the old one is kept
+  as a copy (`<esp>/<machine-id>/limine_history/…efi_sha256_…`).
+- The ESP (FAT, `umask=0077`) is root-only.
 
 ## Hibernation and reboots are unreliable in the lab
 
@@ -126,7 +117,7 @@ Seen: lab VM, Omarchy 4.0.5, systemd 262, cryptsetup 2.8, October 2026; issue #6
 
 ## TPM unlock
 
-Seen: lab VM (swtpm), Omarchy 4.0.5, systemd 262, sbctl 0.18, October 2026; issue #5.
+Seen: lab VM (swtpm), Omarchy 4.0.5, systemd 262, October 2026; issue #5 (then bound to PCR 7; see "Measured boot").
 
 - `systemd-cryptenroll --unlock-key-file=/dev/stdin --tpm2-device=auto --tpm2-pcrs=7` enrolls in a few seconds and
   prints `New TPM2 token enrolled as key slot N.` The token (`systemd-tpm2`) records `tpm2-pcrs: [7]` and the bank.
@@ -142,17 +133,41 @@ Seen: lab VM (swtpm), Omarchy 4.0.5, systemd 262, sbctl 0.18, October 2026; issu
 - When PCR 7 doesn't match, `systemd-cryptsetup@root` logs `TPM policy does not match current system state. Either
   system has been tampered with or policy out-of-date: Operation not permitted` and shows the normal themed prompt; the
   recovery key or passphrase opens the disk there.
-- **Changing the firmware's db from the running laptop**, for a test: sbctl refuses while the variables are immutable
-  (`‼ File is immutable: …/db-…  You need to chattr -i files in efivarfs`), one variable at a time. After
-  `chattr -i` on the PK, KEK and db variables, `sbctl enroll-keys --append --partial db --custom` appends the
-  certificates in `/var/lib/sbctl/keys/custom/db/` without setup mode (sbctl signs the update with the KEK).
-- **Secure Boot off, in the lab**: start the same variables, disk and TPM with `OVMF_CODE.4m.fd` (Arch's build
-  without Secure Boot) instead of `OVMF_CODE.secboot.4m.fd`. PCR 7 changes, and switching back restores it.
 - **The one-time unlock** (#37, same lab): `--tpm2-pcrs=` (empty) binds to no PCRs; the token records `tpm2-pcrs:
   []`, which is how setup tells it from the PCR 7 one. It opens the disk with Secure Boot off and at the restart with
   it on, with nothing typed. With two TPM tokens, `cryptsetup open --test-passphrase --token-only --token-id=N DEV`
   tests one of them (by token id, from `luksDump --dump-json-metadata`).
   `systemd-cryptenroll --unlock-tpm2-device=auto` enrolls the PCR 7 slot unlocked by the one-time one.
+
+## Measured boot
+
+Seen: lab VM (OVMF, swtpm), Omarchy 4.0.5, systemd 262, October 2026, and a read-only check on an MSI laptop (AMI
+firmware); issue #26.
+
+- **Laptops ship with the manufacturer's platform key enrolled**, even with Secure Boot off and `SetupMode` reading 1
+  on the MSI: its PK ("MSI SHIP PK") was immutable from the OS, and writing db gave "permission denied". Enrolling
+  our own keys needs a visit to the firmware settings; the lab, which starts with no keys, never showed it.
+- **systemd-pcrlock** is `/usr/lib/systemd/systemd-pcrlock`, not on `PATH`. `make-policy` keeps the policy in a TPM
+  NV index and writes `/var/lib/systemd/pcrlock.json` and `/boot/loader/credentials/pcrlock.<machine-id>.cred`, which
+  systemd-stub hands to the initramfs (with Limine too). `systemd-cryptenroll --tpm2-pcrlock=FILE` records
+  `tpm2_pcrlock: true` and `tpm2-pcrs: []`; without `--tpm2-pcrlock=`, cryptenroll picks up `pcrlock.json` by
+  itself, even for `--tpm2-pcrs=`.
+- **PCR 4** holds the firmware's "Calling EFI Application" action, the separator, then each EFI program it started:
+  Limine and the boot image Limine chainloaded. A snapshot or a new boot image changes `limine.conf`, so the enrolled
+  checksum, so Limine's hash. **PCR 12 and 9** get pcrlock's own credential ("Global credentials initrd"), measured
+  after the policy is made: unusable. **PCR 5** had an Exit Boot Services retry in OVMF.
+- **A stock Omarchy start measures nothing in the initrd**: the busybox initramfs doesn't run systemd's
+  measurements, so `predict --strict` with `/usr/lib/pcrlock.d` reports "Couldn't find component '750-enter-initrd'"
+  (PCR 11) and '750-os-separator' (PCRs 0-14) and drops PCR 4 and 11. Without those two components it matches.
+- **pcrlock's default recovery PIN is sealed behind the policy itself**: after one start that missed the policy, it
+  can never be rewritten (`Esys_PolicyOR` TPM error 0x1c4). With our own PIN (`$PIN` and `--recovery-pin=query`; with
+  no `$PIN` it waits for an agent forever) it can.
+- **limine-snapper-sync runs Limine's hooks with `ProtectHome=yes`**: a PIN under `/root` read as empty, and the
+  write failed with "Failed to write to NV index: State not recoverable" (0x99d). It also runs them twice within a
+  second.
+- **A cleared TPM gets no NV index from `make-policy`** when the prediction hasn't changed ("Prediction is identical
+  to current policy, skipping update"), so a new enrollment fails to open the disk. `remove-policy` then
+  `make-policy` writes it afresh.
 
 ## The disk passphrase can differ from the user's password
 
@@ -168,27 +183,25 @@ MDM knows, and `setup`'s second run removes it.
 
 Seen: lab VM, Omarchy 4.0.5, limine 12.9.3, limine-mkinitcpio-hook 1.40.0, October 2026; issue #7.
 
-- **A limine upgrade (or reinstall) leaves Limine unsigned.** pacman runs hooks in name order across
+- **A limine upgrade (or reinstall) leaves a plain Limine.** pacman runs hooks in name order across
   `/usr/share/libalpm/hooks` and `/etc/pacman.d/hooks`. Limine's `80-limine-efi-deploy` runs `limine-install`, which
-  enrolls the menu and signs Limine. Then Omarchy's `/etc/pacman.d/hooks/99-omarchy-limine.hook` copies the plain
-  `/usr/share/limine/BOOTX64.EFI` over `EFI/limine/limine_x64.efi`: unsigned, nothing enrolled. With Secure Boot on,
-  the firmware refuses its Limine entry and starts the next one: in the lab, the fallback `EFI/BOOT/BOOTX64.EFI`
-  (enrolled and signed thanks to our fallback hook), so it still started, with `BootCurrent` showing a different entry.
-  A firmware with no fallback entry wouldn't start. `zz-monarchy-encryption.hook` sorts after it and re-signs.
+  enrolls the menu. Then Omarchy's `/etc/pacman.d/hooks/99-omarchy-limine.hook` copies the plain
+  `/usr/share/limine/BOOTX64.EFI` over `EFI/limine/limine_x64.efi`: nothing enrolled, so it boots any menu.
+  `zz-monarchy-encryption.hook` sorts after it and rebuilds.
 - **`omarchy-refresh-limine` re-opens the boot menu editor**, correctly enrolled: it copies Omarchy's default
   `limine.conf` (no `editor_enabled: no`) over ours and runs `limine-update`, which enrolls the new menu's checksum.
   Everything is signed and the laptop starts with the TPM, but the menu can be edited again. Limine runs its post
   hooks (`/etc/boot/hooks/post.d`) in name order, its own `90-limine-enroll-config` among them, so a hook named `85-`
   can lock the menu before its checksum is enrolled.
 - **Kernel updates and Omarchy migrations stay correct** on their own. Every migration that rebuilds the boot image
-  goes through `limine-mkinitcpio` or `limine-update`, which sign through sbctl's hook. The ones in 4.0.5 edit only
+  goes through `limine-mkinitcpio` or `limine-update`, which run Limine's post hooks. The ones in 4.0.5 edit only
   `BOOT_ORDER` in `/etc/default/limine` and their own drop-ins, never our `ENABLE_ENROLL_LIMINE_CONFIG` line or
   `zz-monarchy-encryption.conf`. No migration runs `omarchy-refresh-limine`.
 
 ## Omarchy's provisioning and factory reset
 
 Seen: Omarchy 4.0.5 in the lab (reading `omarchy-provision-owner` and `omarchy-system-factory-reset`, and trying the
-auto-unlock and `sbctl reset`), October 2026; issue #9.
+auto-unlock), October 2026; issue #9.
 
 - **Deferred provisioning auto-unlocks with a busybox-only mechanism.** A deferred install, or a factory reset, stages
   a throwaway passphrase as `/var/lib/omarchy/provisioning/luks-key` and `/etc/omarchy/provisioning.key`, bundles the
@@ -204,16 +217,7 @@ auto-unlock and `sbctl reset`), October 2026; issue #9.
 - **A factory reset asks for the "current disk encryption passphrase"**, which a set-up laptop no longer has; the
   recovery key works there. It adds the throwaway slot and leaves the others to provisioning (above).
 - **A factory reset rebuilds the boot files inside the `@factory` snapshot** (`chroot "$next" limine-update`), taken
-  right after the install: no sbctl keys, no `ENABLE_ENROLL_LIMINE_CONFIG=yes`, no monarchy-encryption. Everything it
-  writes is unsigned (not tested end to end yet: #19's snapshot finding says the firmware refuses unsigned images).
-- **`sbctl reset` hands the firmware back** from the running laptop: it removes the platform key (after `chattr -i` on
-  the PK, KEK and db variables, as for any change), the firmware is in setup mode at once, and Secure Boot is off from
-  the next start. Signed boot files keep starting.
-- **`sbctl reset` removes only the platform key**: KEK and db stay in the firmware, and efivarfs keeps them immutable.
-  Enrolling keys again then fails (`‼ File is immutable: …/KEK-…`, `…/db-…`) until `chattr -i` on each, so `setup`
-  clears the flag on any leftover KEK, db and dbx before enrolling. Firmwares whose "clear keys" or "reset to setup
-  mode" removes only the platform key leave the same state. Found by `e2e-release.sh` (setup after a release and a
-  factory reset).
+  right after the install: no `ENABLE_ENROLL_LIMINE_CONFIG=yes`, no monarchy-encryption, so none of our hooks run.
 - The lab install (Omarchy 4.0.5 ISO, `defer_provisioning: false`) has an `@factory` subvolume, so a factory reset can
   be tried there.
 

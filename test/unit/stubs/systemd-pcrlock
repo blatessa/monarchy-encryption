@@ -1,0 +1,53 @@
+#!/bin/bash
+# Stand-in for systemd-pcrlock 262 (behaviour as observed in the lab: docs/dev/findings.md, "Measured boot"). A boot
+# file is described by its hash. make-policy writes the policy file (pcrValues for each --pcr) and remembers which
+# descriptions it covers ($STUB_STATE/policy-covers); once a policy exists, rewriting it needs the recovery PIN it was
+# made with ($PIN), as a start that missed the policy can't rewrite it otherwise. STUB_PCRLOCK_UNPREDICTABLE=1: the
+# firmware measured something pcrlock doesn't recognise (strict: no policy). STUB_PCRLOCK_UNSUPPORTED=1: the TPM lacks
+# PolicyAuthorizeNV. predict, as at a start with the busybox initramfs ($STUB_STATE/systemd-initrd absent: a stock
+# install), fails with systemd's initramfs components among the --components (nothing measured them).
+# STUB_PCRLOCK_ESP_CHANGED=1: the boot files changed since this start, so predict fails, but log shows only
+# measurements pcrlock knows (programs the firmware started, boot image sections).
+echo "systemd-pcrlock $*" >> "$STUB_LOG"
+cmd=$1; shift
+out="" policy=/var/lib/systemd/pcrlock.json file="" pcrs=() components=()
+for a in "$@"; do
+  case $a in
+    --pcrlock=*) out=${a#*=} ;;
+    --policy=*) policy=${a#*=} ;;
+    --pcr=*) pcrs+=("${a#*=}") ;;
+    --components=*) components+=("${a#*=}") ;;
+    -*) ;;
+    *) file=$a ;;
+  esac
+done
+unpredictable() { echo "PCR 4 (boot-loader-code) event log contains unrecognized measurements. Removing from set of PCRs." >&2; exit 1; }
+case $cmd in
+  is-supported) [[ -z ${STUB_PCRLOCK_UNSUPPORTED:-} ]] || { echo obsolete; exit 1; }; echo yes ;;
+  lock-pe|lock-uki)
+    [[ -f $file && -n $out ]] || { echo "Failed to open '$file'" >&2; exit 1; }
+    mkdir -p "$(dirname "$out")"; echo "${cmd#lock-} $(sha256sum <"$file" | cut -d' ' -f1)" > "$out" ;;
+  predict)
+    [[ -z ${STUB_PCRLOCK_UNPREDICTABLE:-} && -z ${STUB_PCRLOCK_ESP_CHANGED:-} ]] || unpredictable
+    if [[ ! -e $STUB_STATE/systemd-initrd ]] && ls "${components[@]}" 2>/dev/null | grep -q '^750-enter-initrd'; then
+      echo "Couldn't find component '750-enter-initrd' in event log." >&2; unpredictable
+    fi
+    echo "PCRs in protection mask: ${pcrs[*]}" ;;
+  make-policy)
+    [[ -z ${STUB_PCRLOCK_UNPREDICTABLE:-} ]] || unpredictable
+    [[ -n ${PIN:-} ]] || { echo "stub: would wait at a PIN prompt (no \$PIN)" >&2; exit 1; }
+    if [[ -f $STUB_STATE/nv-pin && $(cat "$STUB_STATE/nv-pin") != "$PIN" ]]; then
+      echo "Failed to write to NV index: State not recoverable" >&2; exit 1
+    fi
+    printf '%s' "$PIN" > "$STUB_STATE/nv-pin"
+    mkdir -p "$(dirname "$policy")"
+    printf '%s\n' "${pcrs[@]}" | jq -cRn '{nvIndex: 27030477, pcrBank: "sha256", pcrValues: [inputs | {pcr: tonumber, values: ["…"]}]}' > "$policy"
+    cat "$MONARCHY_ENCRYPTION_PCRLOCK_DIR"/*.pcrlock.d/*.pcrlock 2>/dev/null | sort -u > "$STUB_STATE/policy-covers"
+    echo "Written new policy to '$policy' and digest to TPM2 NV index 0x19c73cd." ;;
+  log)
+    extra=""; [[ -z ${STUB_PCRLOCK_UNPREDICTABLE:-} ]] || extra=',{"pcr":4,"event":"efi-action","component":null,"description":"Action: something else"}'
+    printf '{"log":[{"pcr":4,"event":"separator","component":"500-separator"},{"pcr":4,"event":"efi-boot-services-application","component":null},{"pcr":11,"event":"ipl","component":null},{"pcr":7,"event":"efi-variable-authority","component":null}%s]}\n' "$extra" ;;
+  remove-policy) rm -f "$policy" "$STUB_STATE/nv-pin" "$STUB_STATE/policy-covers"; echo "Removed policy file '$policy'." ;;
+  *) echo "stub: unknown command $cmd" >&2; exit 1 ;;
+esac
+exit 0

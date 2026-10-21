@@ -1,7 +1,8 @@
 # monarchy-encryption
 
 Disk unlock for [Omarchy](https://omarchy.org) laptops that more than one person signs in to. The laptop's TPM unlocks
-its encrypted disk at boot, protected by Secure Boot with the laptop's own keys, and IT holds a recovery key. Nobody
+its encrypted disk at boot, only for the laptop's own boot files, and IT holds a recovery key. Nothing changes in the
+firmware settings, so no laptop needs a visit to them. Nobody
 types a disk passphrase, so the login screen becomes the place people prove who they are.
 
 ## Why
@@ -14,9 +15,9 @@ and types two secrets at boot.
 
 The standard answer, the one BitLocker gives Windows, is:
 
-- the **TPM** releases the disk key at boot, but only if the laptop started the expected, signed software;
-- **Secure Boot** with the laptop's own keys makes "expected software" mean something;
-- a per-laptop **recovery key**, held by IT, covers firmware changes and repairs;
+- the **TPM** releases the disk key at boot, but only if the laptop started the expected software, which the firmware
+  measures as it starts it;
+- a per-laptop **recovery key**, held by IT, covers repairs and anything the TPM can't vouch for;
 - the **login screen** is where people authenticate.
 
 ## What it does
